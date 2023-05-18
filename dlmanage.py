@@ -27,9 +27,9 @@ modcodes = ['AC5001', 'AC5002', 'AC5003', 'AC5004', 'AC5005', 'AC5006', 'AC5007'
 
 
 @bot.message_handler( commands = ["start",] )
-def start( text ):
-    userid = str(text.chat.id)
-    username = text.chat.first_name
+def start( startmessage ):
+    userid = str(startmessage.chat.id)
+    username = startmessage.chat.first_name
     doc_ref = db.collection( "users" ).document( userid )
     doc = doc_ref.get()
     if doc.exists:
@@ -39,27 +39,42 @@ def start( text ):
         button3 = telebot.types.KeyboardButton( "View exam timetable" )
         button4 = telebot.types.KeyboardButton( "View modules" )
         markup.add( button1 ).add( button2 ).add( button3 ).add( button4 )
-        bot.reply_to( text, "Hello " + username + ". What would you like to do?", reply_markup = markup )
+        bot.reply_to( startmessage, "Hello " + username + ". What would you like to do?", reply_markup = markup )
     else:
         data = {}
         db.collection( "users" ).document( userid ).set( data )
-        bot.reply_to( text, "Hello " + username +", I am ManagementBot. I hope I can assist you in better planning your scedule!" )
-        bot.send_message( text.chat.id, "What modules are you taking this semester? (Please enter the first module code)" )
-        @bot.message_handler()
-        def add( text ):
-            formtext = text.text.upper()
-            if formtext in modcodes:
-                markup = telebot.types.ReplyKeyboardMarkup( resize_keyboard = True, one_time_keyboard = True )
+        bot.reply_to( startmessage, "Hello " + username +", I am ManagementBot. I hope I can assist you in better planning your scedule!" )
+        bot.send_message( startmessage.chat.id, "What modules are you taking this semester? (Please enter the first module code)" )
+        @bot.message_handler() # Bot handles the module code message
+        def add( addmod ):
+            formtext = addmod.text.upper() # Converts the text to all caps
+            if formtext in modcodes: # If module code is valid
+                for i in allmods: # Find module info
+                    if i["moduleCode"] == formtext: # If corresponding module info is found
+                        data = i
+                        db.collection("users").document( userid ).collection( "mods" ).document(formtext).set(data)
+                        markup = telebot.types.ReplyKeyboardMarkup( resize_keyboard = True, one_time_keyboard = True )
+                        break # Break the for loop once done
                 button1 = telebot.types.KeyboardButton( "Add another module" )
                 button2 = telebot.types.KeyboardButton( "Return to Main" )
                 markup.add( button1 ).add( button2 )
-                bot.send_message( text.chat.id, "Ok, I have added " + formtext + " to your modules. Please select the relevant options." , reply_markup = markup )
-            else:
-                bot.send_message( text.chat.id, "That is not a valid module code. Please try again." )
+                bot.send_message( addmod.chat.id, "Ok, I have added " + formtext + " to your modules. Please select the relevant options." , reply_markup = markup )
                 @bot.message_handler()
-                def try_again( newtext ):
-                    formtext = newtext.text.upper()
-                    return add(newtext)
+                def add_or_back( addorback ):
+                    if addorback.text == "Return to Main":
+                        return start(addorback)
+                    else:
+                        bot.send_message( addorback.chat.id, "Please enter the module code" )
+                        @bot.message_handler()
+                        def new_module(newmod):
+                            return add(newmod)        
+            else: # If module code is invalid
+                bot.send_message( addmod.chat.id, "That is not a valid module code. Please try again." )
+                @bot.message_handler()
+                def try_again( correctmod ):
+                    formtext = correctmod.text.upper()
+                    return add(correctmod)
+        
 
 
 bot.infinity_polling()
