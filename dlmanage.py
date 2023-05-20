@@ -3,17 +3,23 @@ import dotenv
 import telebot
 import firebase_admin
 from firebase_admin import firestore
+from firebase_admin import credentials
 import datetime
 import requests
 import json
 
+
 dotenv.load_dotenv()
 
-bottoken = os.getenv("bottoken")
-bot = telebot.TeleBot(bottoken)
+TOKEN = "6250045869:AAFzbpqRpxTfehyMOK5RHPgheiLLzBruAfk"
 
-dbpath = os.getenv("dbpath")
-cred = firebase_admin.credentials.Certificate(dbpath)
+
+bottoken = os.getenv(TOKEN)
+bot = telebot.TeleBot(TOKEN)
+
+cred = credentials.Certificate('C:\\Users\\angsp\\Desktop\\Uni shit\\managementbot\\managementbot-72f56-firebase-adminsdk-7fs64-3c7bb1c603.json')
+""" dbpath = os.getenv("dbpath")
+cred = firebase_admin.credentials.Certificate(dbpath) """
 dbapp = firebase_admin.initialize_app( cred )
 db = firestore.client()
 
@@ -31,15 +37,25 @@ def start( startmessage ):
     userid = str(startmessage.chat.id)
     username = startmessage.chat.first_name
     doc_ref = db.collection( "users" ).document( userid )
-    doc = doc_ref.get()
+    doc = doc_ref.get() 
     if doc.exists:
         markup = telebot.types.ReplyKeyboardMarkup( resize_keyboard = True, one_time_keyboard = True )
-        button1 = telebot.types.KeyboardButton( "View timetable" )
-        button2 = telebot.types.KeyboardButton( "View personal planner" )
-        button3 = telebot.types.KeyboardButton( "View exam timetable" )
-        button4 = telebot.types.KeyboardButton( "View modules" )
-        markup.add( button1 ).add( button2 ).add( button3 ).add( button4 )
-        bot.reply_to( startmessage, "Hello " + username + ". What would you like to do?", reply_markup = markup )
+        button1 = telebot.types.KeyboardButton( "Assignments Deadlines" )
+        button2 = telebot.types.KeyboardButton( "Personal Planner" )
+        button3 = telebot.types.KeyboardButton( "School Timetable" )
+        button4 = telebot.types.KeyboardButton( "Exam Timetable" )
+        button5 = telebot.types.KeyboardButton( "View Modules" )
+        button6 = telebot.types.KeyboardButton( "Report Issues" )
+        markup.add( button1 ).add( button2 ).add( button3 ).add( button4 ).add( button5 ).add( button6 )
+        reply_text = f"Hello {username}. What would you like to do?\n\n"
+        reply_text += "Please select the corresponding buttons.\n\n"
+        reply_text += "1) Assignments Deadlines\n"
+        reply_text += "2) Personal Planner\n"
+        reply_text += "3) School Timetable\n"
+        reply_text += "4) Exam Timetable\n"
+        reply_text += "5) View Modules\n"
+        reply_text += "6) Report Issues"
+        bot.reply_to( startmessage, reply_text , reply_markup = markup )
     else:
         data = {}
         db.collection( "users" ).document( userid ).set( data )
@@ -47,7 +63,7 @@ def start( startmessage ):
         bot.send_message( startmessage.chat.id, "What modules are you taking this semester? (Please enter the first module code)" )
         @bot.message_handler() # Bot handles the module code message
         def add( addmod ):
-            formtext = addmod.text.upper() # Converts the text to all caps
+            frmtext = addmod.text.upper() # Converts the text to all caps
             if formtext in modcodes: # If module code is valid
                 for i in allmods: # Find module info
                     if i["moduleCode"] == formtext: # If corresponding module info is found
@@ -75,6 +91,66 @@ def start( startmessage ):
                     formtext = correctmod.text.upper()
                     return add(correctmod)
         
+
+# FOR DEADLINE (1)
+@bot.message_handler(func = lambda message: message.text == "Assignments Deadlines")
+def assignments_deadline(message):
+    user_id = message.from_user.id
+    deadlines = get_dl(user_id)
+    
+    if deadlines:
+        response = "These are your current deadlines:\n"
+        for deadline in deadlines:
+            response += f"- {deadline['title']}: {deadline['deadline']}\n"
+    else:
+        response = "Yay! You have no pending deadlines, keep up the good work!"
+    
+    bot.reply_to(message, "This is a test response for Assignments Deadlines")       
+            
+
+def get_dl(user_id):
+    dl_collection = db.collection("users").document(user_id).collection("dl")
+    dl = dl_collection.get()
+
+    dl_data = []
+    for deadline in dl:
+        dl_data.append(deadline.to_dict())
+    
+    return dl_data
+
+
+# FOR PERSONAL PLANNER (2)
+@bot.message_handler(func = lambda message: message.text == "Personal Planner")
+def personal_planner(message):
+    bot.reply_to(message, "This is a test response for Personal Planner")       
+    
+    
+# FOR SCHOOL TIMETABLE (3)
+@bot.message_handler(func = lambda message: message.text == "School Timetable")
+def personal_planner(message):
+    bot.reply_to(message, "This is a test response for School Timetable")       
+    
+    
+    
+# FOR EXAM TIMETABLE (4)
+@bot.message_handler(func = lambda message: message.text == "Exam Timetable")
+def personal_planner(message):
+    bot.reply_to(message, "This is a test response for Exam Timetable")       
+    
+    
+    
+# FOR VIEW MODULES (5)
+@bot.message_handler(func = lambda message: message.text == "View Modules")
+def personal_planner(message):
+    bot.reply_to(message, "This is a test response for View Modules")       
+    
+    
+    
+# FOR REPORT ISSUES (6)
+@bot.message_handler(func = lambda message: message.text == "Report Issues")
+def personal_planner(message):
+    bot.reply_to(message, "This is a test response for Report Issues")       
+
 
 
 bot.infinity_polling()
