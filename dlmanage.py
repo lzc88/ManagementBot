@@ -97,18 +97,8 @@ def add_another( addnew ):
 
 ##############################################################################################
 # FOR DEADLINE (1)
-
-def set_dl(user_id,assignment_data):
-     # Get a reference to the "users" collection in the Firestore database
-    users_ref = firestore.client().collection("users")
     
-    # Create a document reference for the user ID
-    doc_ref = users_ref.document(user_id)
-
-    # Set the assignment data for the user ID
-    doc_ref.set({"dl_data": dl_data})
-    
-# Preset data for testing! Redo in future with proper databasing
+# Sample data for testing! (Only orbital deadline is real haha) Redo in future with proper databasing
 dl_data = [
     {
         "title": "ST2131 Quiz 4",
@@ -148,22 +138,28 @@ def add_dl(message):
     username = message.chat.first_name
     user_id = str(message.from_user.id)
     set_dl(user_id, dl_data)
-    bot.reply_to(message, f"Assignments added successfully for {username}")
+    bot.reply_to(message, f"DL_DATA added successfully for {username}")
 
 def set_dl(user_id, dl_data):
     user_doc = db.collection("users").document(user_id)
     dl_collection = user_doc.collection("dl")
-    
-    for data in dl_data:
-        dl_collection.add(data)
 
+    for data in dl_data:
+        assignment = {
+            'id': dl_collection.document().id,  # Assign a unique ID to each assignment
+            'title': data['title'],
+            'due_date': data['due_date'],
+            'status': data['status']
+        }
+        dl_collection.add(assignment)
+        
 #To delete the sample data dl_data above from user_id
 @bot.message_handler(func=lambda message: message.text == "delete dl_data")
 def delete_deadlines(message):
     username = message.chat.first_name
     user_id = str(message.from_user.id)
     delete_dl(user_id)
-    bot.reply_to(message, f"All deadlines have been deleted for {username}")
+    bot.reply_to(message, f"DL_DATA have been deleted for {username}")
 
 def delete_dl(user_id):
     user_doc = db.collection("users").document(user_id)
@@ -174,14 +170,14 @@ def delete_dl(user_id):
     for doc in docs:
         doc.reference.delete()
 
-
+#Main function for Assignment Deadlines
 @bot.message_handler(func=lambda message: message.text == "Assignments Deadlines")
 def assignments_deadline(message):
     user_id = str(message.from_user.id)
     deadlines = get_dl(user_id)
 
     if deadlines:
-        sorted_dl = sorted(deadlines, key=lambda x: datetime.strptime(x['due_date'], "%d/%m/%y %H%Mhrs"))
+        sorted_dl = sorted(deadlines, key=lambda x: (x['status'] == "COMPLETED", datetime.strptime(x['due_date'], "%d/%m/%y %H%Mhrs")))
         response = "These are your current deadlines:\n"
         for i, deadline in enumerate(sorted_dl, start=1):
             due_date = datetime.strptime(deadline['due_date'], "%d/%m/%y %H%Mhrs")
@@ -195,14 +191,151 @@ def assignments_deadline(message):
                 time_left = f"{days_remaining} days and {hours_remaining} hours left."
             elif hours_remaining > 0:
                 time_left = f"{hours_remaining} hours left."
+            elif time_remaining > 0:
+                time_left = "You have less than an hour left!"
             else:
-                time_left = "less than an hour left!"
+                time_left = "The deadline for this assignment has passed"
+            
+            day_of_week = due_date.strftime("%A")
 
-            response += f"{i}) {deadline['title']}: {deadline['due_date']}\n(Time left: {time_left})\n\n"
+            response += f"{i}) {deadline['title']}:\nDue date: {day_of_week}, {deadline['due_date']} \nTime left: {time_left}\nStatus: {deadline['status']}\n\n"
     else:
         response = "Yay! You have no pending deadlines, keep up the good work!"
 
     bot.reply_to(message, response)
+
+
+# To allow users to mark as completion
+@bot.message_handler(func=lambda message: message.text.lower() == "/completed")
+def mark_completed(message):
+    user_id = str(message.from_user.id)
+    deadlines = get_dl(user_id)
+
+    if deadlines:
+        response = "Please select the assignment you completed:\n"
+        sorted_deadlines = sorted(deadlines, key=lambda x: datetime.strptime(x['due_date'], "%d/%m/%y %H%Mhrs"))
+        pending_counter = 1
+        pending_assignments = []
+        for i, deadline in enumerate(sorted_deadlines, start=1):
+            if deadline['status'] != "COMPLETED":
+                response += f"{pending_counter}) {deadline['title']}\n"
+                pending_assignments.append((deadline['id'], deadline['title']))  # Include assignment ID
+                pending_counter += 1
+
+        if pending_counter == 1:
+            response = "You do not have any assignments marked NOT COMPLETED left."
+        else:
+            response += "To return, please reply 'back'"
+            bot.send_message(message.chat.id, response)
+            bot.register_next_step_handler(message, process_completed, pending_assignments)
+
+        # Check if all deadlines are completed
+        if all(deadline['status'] == "COMPLETED" for deadline in deadlines):
+            response = "Yay! You have completed all deadlines, keep up the good work!"
+            bot.send_message(message.chat.id, response)
+    else:
+        response = "Yay! You have no pending deadlines, keep up the good work!"
+        bot.reply_to(message, response)
+
+def process_completed(message, pending_assignments):
+    user_id = str(message.from_user.id)
+    text = message.text.lower()
+
+    if text == "back":
+        assignments_deadline(message)
+    else:
+        try:
+            assignment_index = int(text) - 1
+
+            if assignment_index in range(len(pending_assignments)):
+                assignment_id, assignment_title = pending_assignments[assignment_index]  # Retrieve assignment ID and title
+                deadlines = get_dl(user_id)
+
+                for deadline in deadlines:
+                    if deadline['id'] == assignment_id:
+                        if deadline['status'] != "COMPLETED":
+                            deadline['status'] = "COMPLETED"
+                            update_dl(user_id, deadlines)
+                            response = f"Congratulations on completing! I have marked '{assignment_title}' as COMPLETED."
+
+                        else:
+                            response = "This assignment has already been marked as COMPLETED."
+                        break
+                else:
+                    response = "Failed to update the completion status. Please try again."
+            else:
+                response = "Invalid assignment index. Please type in the number corresponding to the completed assignment.\n"
+                response += "For example, if you want to mark 1) HW1 , simply reply 1"
+        except ValueError:
+            response = "Invalid input."
+
+        bot.reply_to(message, response)
+        assignments_deadline(message)
+
+
+
+
+# To mark as uncompleted
+@bot.message_handler(func=lambda message: message.text == "/uncompleted")
+def mark_uncompleted(message):
+    user_id = str(message.from_user.id)
+    deadlines = get_dl(user_id)
+
+    if deadlines:
+        response = "Please select the assignment to mark as NOT COMPLETED:\n"
+        sorted_deadlines = sorted(deadlines, key=lambda x: datetime.strptime(x['due_date'], "%d/%m/%y %H%Mhrs"))
+        completed_counter = 1
+        completed_assignments = []
+        for i, deadline in enumerate(sorted_deadlines, start=1):
+            if deadline['status'] == "COMPLETED":
+                response += f"{completed_counter}) {deadline['title']}\n"
+                completed_assignments.append(deadline['id'])  # Include assignment ID
+                completed_counter += 1
+
+        if completed_counter == 1:
+            response = "You do not have any assignments marked as COMPLETED."
+        else:
+            response += "To return, please reply 'back'"
+        bot.send_message(message.chat.id, response)
+        bot.register_next_step_handler(message, process_uncompleted, completed_assignments)
+    else:
+        response = "Yay! You have completed all your assignments for now, keep up the good work!"
+        bot.reply_to(message, response)
+
+def process_uncompleted(message, completed_assignments):
+    user_id = str(message.from_user.id)
+    text = message.text.lower()
+
+    if text == "back":
+        assignments_deadline(message)
+    else:
+        try:
+            assignment_index = int(text) - 1
+
+            if assignment_index in range(len(completed_assignments)):
+                assignment_id = completed_assignments[assignment_index]  # Retrieve assignment ID
+                deadlines = get_dl(user_id)
+
+                for deadline in deadlines:
+                    if deadline['id'] == assignment_id:
+                        if deadline['status'] == "COMPLETED":
+                            deadline['status'] = "NOT COMPLETED"
+                            update_dl(user_id, deadlines)
+                            response = f"Assignment '{deadline['title']}' has been marked as NOT COMPLETED."
+                        else:
+                            response = "This assignment is already marked as NOT COMPLETED."
+                        break
+                else:
+                    response = "Failed to update the completion status. Please try again."
+            else:
+                response = "Invalid assignment index. Please type in the number corresponding to the completed assignment.\n"
+                response += "For example, if you want to mark 1) HW1 , simply reply 1"
+        except ValueError:
+            response = "Invalid input."
+
+        bot.reply_to(message, response)
+        assignments_deadline(message)
+
 
 def get_dl(user_id):
     dl_collection = db.collection("users").document(user_id).collection("dl")
@@ -210,9 +343,22 @@ def get_dl(user_id):
 
     dl_data = []
     for deadline in dl:
-        dl_data.append(deadline.to_dict())
-    
+        dl_data.append({**deadline.to_dict(), 'id': deadline.id})  # Include assignment ID
+
     return dl_data
+
+def update_dl(user_id, deadlines):
+    user_doc = db.collection("users").document(user_id)
+    dl_collection = user_doc.collection("dl")
+
+    for deadline in deadlines:
+        doc_id = deadline['id']
+        dl_doc = dl_collection.document(str(doc_id))
+        dl_doc.set(deadline)
+
+
+
+
 
 
 # FOR PERSONAL PLANNER (2)
