@@ -7,6 +7,7 @@ from firebase_admin import credentials
 import datetime
 import requests
 import json
+from datetime import datetime
 
 
 dotenv.load_dotenv()
@@ -32,81 +33,176 @@ modcodes = ['AC5001', 'AC5002', 'AC5003', 'AC5004', 'AC5005', 'AC5006', 'AC5007'
 
 
 
-@bot.message_handler( commands = ["start",] )
+@bot.message_handler( commands = ["start","Return to main"] ) # Handle /start command
 def start( startmessage ):
     userid = str(startmessage.chat.id)
     username = startmessage.chat.first_name
     doc_ref = db.collection( "users" ).document( userid )
-    doc = doc_ref.get() 
+    doc = doc_ref.get()
     if doc.exists:
-        markup = telebot.types.ReplyKeyboardMarkup( resize_keyboard = True, one_time_keyboard = True )
-        button1 = telebot.types.KeyboardButton( "Assignments Deadlines" )
-        button2 = telebot.types.KeyboardButton( "Personal Planner" )
-        button3 = telebot.types.KeyboardButton( "School Timetable" )
-        button4 = telebot.types.KeyboardButton( "Exam Timetable" )
-        button5 = telebot.types.KeyboardButton( "View Modules" )
-        button6 = telebot.types.KeyboardButton( "Report Issues" )
-        markup.add( button1 ).add( button2 ).add( button3 ).add( button4 ).add( button5 ).add( button6 )
-        reply_text = f"Hello {username}. What would you like to do?\n\n"
-        reply_text += "Please select the corresponding buttons.\n\n"
-        reply_text += "1) Assignments Deadlines\n"
-        reply_text += "2) Personal Planner\n"
-        reply_text += "3) School Timetable\n"
-        reply_text += "4) Exam Timetable\n"
-        reply_text += "5) View Modules\n"
-        reply_text += "6) Report Issues"
-        bot.reply_to( startmessage, reply_text , reply_markup = markup )
+        response = "Welcome back " + username + ". What can i do for you today?\n\n"
+        response += "Please select the corresponding buttons.\n\n"
+        response += "1) Assignments Deadlines\n"
+        response += "2) Personal Planner\n"
+        response += "3) School Timetable\n"
+        response += "4) Exam Timetable\n"
+        response += "5) View Modules\n"
+        response += "6) Report Issues"
+        bot.send_message( startmessage.chat.id, response )
+        return main( startmessage )
     else:
         data = {}
         db.collection( "users" ).document( userid ).set( data )
         bot.reply_to( startmessage, "Hello " + username +", I am ManagementBot. I hope I can assist you in better planning your scedule!" )
         bot.send_message( startmessage.chat.id, "What modules are you taking this semester? (Please enter the first module code)" )
-        @bot.message_handler() # Bot handles the module code message
-        def add( addmod ):
-            frmtext = addmod.text.upper() # Converts the text to all caps
-            if formtext in modcodes: # If module code is valid
-                for i in allmods: # Find module info
-                    if i["moduleCode"] == formtext: # If corresponding module info is found
-                        data = i
-                        db.collection("users").document( userid ).collection( "mods" ).document(formtext).set(data)
-                        markup = telebot.types.ReplyKeyboardMarkup( resize_keyboard = True, one_time_keyboard = True )
-                        break # Break the for loop once done
-                button1 = telebot.types.KeyboardButton( "Add another module" )
-                button2 = telebot.types.KeyboardButton( "Return to Main" )
-                markup.add( button1 ).add( button2 )
-                bot.send_message( addmod.chat.id, "Ok, I have added " + formtext + " to your modules. Please select the relevant options." , reply_markup = markup )
-                @bot.message_handler()
-                def add_or_back( addorback ):
-                    if addorback.text == "Return to Main":
-                        return start(addorback)
-                    else:
-                        bot.send_message( addorback.chat.id, "Please enter the module code" )
-                        @bot.message_handler()
-                        def new_module(newmod):
-                            return add(newmod)        
-            else: # If module code is invalid
-                bot.send_message( addmod.chat.id, "That is not a valid module code. Please try again." )
-                @bot.message_handler()
-                def try_again( correctmod ):
-                    formtext = correctmod.text.upper()
-                    return add(correctmod)
-        
 
+@bot.message_handler( regexp = "Return to Main" )  
+def main( goback ):
+    markup = telebot.types.ReplyKeyboardMarkup( resize_keyboard = True, one_time_keyboard = True )
+    button1 = telebot.types.KeyboardButton( "Assignments Deadlines" )
+    button2 = telebot.types.KeyboardButton( "Personal Planner" )
+    button3 = telebot.types.KeyboardButton( "School Timetable" )
+    button4 = telebot.types.KeyboardButton( "Exam Timetable" )
+    button5 = telebot.types.KeyboardButton( "View Modules" )
+    button6 = telebot.types.KeyboardButton( "Report Issues" )
+    markup.add( button1 ).add( button2 ).add( button3 ).add( button4 ).add( button5 ).add( button6 )
+    reply_text += "Please select the corresponding buttons.\n\n"
+    reply_text += "1) Assignments Deadlines\n"
+    reply_text += "2) Personal Planner\n"
+    reply_text += "3) School Timetable\n"
+    reply_text += "4) Exam Timetable\n"
+    reply_text += "5) View Modules\n"
+    reply_text += "6) Report Issues"
+    bot.reply_to( goback, reply_text , reply_markup = markup )
+ 
+        
+@bot.message_handler( func = lambda x: True if x.text.upper() in modcodes else False ) # Bot handles the module code message
+def add( addmod ):
+    userid = str(addmod.chat.id)
+    formtext = addmod.text.upper() # Converts the text to all caps
+    for i in allmods: # Find module info
+        if i["moduleCode"] == formtext: # If corresponding module info is found
+            data = i
+            db.collection("users").document( userid ).collection( "mods" ).document(formtext).set(data)
+            break # Break the for loop once done
+    button1 = telebot.types.KeyboardButton( "Add another module" )
+    button2 = telebot.types.KeyboardButton( "Return to Main" )
+    markup = telebot.types.ReplyKeyboardMarkup( resize_keyboard = True, one_time_keyboard = True )
+    markup.add( button1 ).add( button2 )
+    bot.send_message( addmod.chat.id, "Ok, I have added " + formtext + " to your modules. Please select the relevant options." , reply_markup = markup )
+
+@bot.message_handler( regexp = "Add another module" )
+def add_another( addnew ):
+    bot.send_message( addnew.chat.id, "Please enter the module code." )
+
+##############################################################################################
 # FOR DEADLINE (1)
-@bot.message_handler(func = lambda message: message.text == "Assignments Deadlines")
-def assignments_deadline(message):
-    user_id = message.from_user.id
-    deadlines = get_dl(user_id)
+
+def set_dl(user_id,assignment_data):
+     # Get a reference to the "users" collection in the Firestore database
+    users_ref = firestore.client().collection("users")
     
+    # Create a document reference for the user ID
+    doc_ref = users_ref.document(user_id)
+
+    # Set the assignment data for the user ID
+    doc_ref.set({"dl_data": dl_data})
+    
+# Preset data for testing! Redo in future with proper databasing
+dl_data = [
+    {
+        "title": "ST2131 Quiz 4",
+        "due_date": "12/7/23 2359hrs",
+        "status": "NOT COMPLETED"
+    },
+    {
+        "title": "HSA1000 Individual Essay",
+        "due_date": "13/7/23 2359hrs",
+        "status": "NOT COMPLETED"
+    },
+    {
+        "title": "DTK1234 Final DTJ",
+        "due_date": "14/6/23 2359hrs",
+        "status": "NOT COMPLETED"
+    },
+    {
+        "title": "Orbital Milestone 1",
+        "due_date": "29/5/23 1400hrs",
+        "status": "NOT COMPLETED"
+    },
+    {
+        "title": "Orbital Milestone 2",
+        "due_date": "26/6/23 1400hrs",
+        "status": "NOT COMPLETED"
+    },
+    {
+        "title": "Orbital Milestone 3",
+        "due_date": "24/7/23 1400hrs",
+        "status": "NOT COMPLETED"
+    }
+]
+
+#To add the sample data dl_data above into user_id
+@bot.message_handler(func=lambda message: "add dl_data" in message.text)
+def add_dl(message):
+    username = message.chat.first_name
+    user_id = str(message.from_user.id)
+    set_dl(user_id, dl_data)
+    bot.reply_to(message, f"Assignments added successfully for {username}")
+
+def set_dl(user_id, dl_data):
+    user_doc = db.collection("users").document(user_id)
+    dl_collection = user_doc.collection("dl")
+    
+    for data in dl_data:
+        dl_collection.add(data)
+
+#To delete the sample data dl_data above from user_id
+@bot.message_handler(func=lambda message: message.text == "delete dl_data")
+def delete_deadlines(message):
+    username = message.chat.first_name
+    user_id = str(message.from_user.id)
+    delete_dl(user_id)
+    bot.reply_to(message, f"All deadlines have been deleted for {username}")
+
+def delete_dl(user_id):
+    user_doc = db.collection("users").document(user_id)
+    dl_collection = user_doc.collection("dl")
+    
+    # Delete the existing dl collection
+    docs = dl_collection.get()
+    for doc in docs:
+        doc.reference.delete()
+
+
+@bot.message_handler(func=lambda message: message.text == "Assignments Deadlines")
+def assignments_deadline(message):
+    user_id = str(message.from_user.id)
+    deadlines = get_dl(user_id)
+
     if deadlines:
+        sorted_dl = sorted(deadlines, key=lambda x: datetime.strptime(x['due_date'], "%d/%m/%y %H%Mhrs"))
         response = "These are your current deadlines:\n"
-        for deadline in deadlines:
-            response += f"- {deadline['title']}: {deadline['deadline']}\n"
+        for i, deadline in enumerate(sorted_dl, start=1):
+            due_date = datetime.strptime(deadline['due_date'], "%d/%m/%y %H%Mhrs")
+            current_date = datetime.now()
+
+            time_remaining = due_date - current_date
+            days_remaining = time_remaining.days
+            hours_remaining = time_remaining.seconds // 3600
+
+            if days_remaining > 0:
+                time_left = f"{days_remaining} days and {hours_remaining} hours left."
+            elif hours_remaining > 0:
+                time_left = f"{hours_remaining} hours left."
+            else:
+                time_left = "less than an hour left!"
+
+            response += f"{i}) {deadline['title']}: {deadline['due_date']}\n(Time left: {time_left})\n\n"
     else:
         response = "Yay! You have no pending deadlines, keep up the good work!"
-    
-    bot.reply_to(message, "This is a test response for Assignments Deadlines")       
-            
+
+    bot.reply_to(message, response)
 
 def get_dl(user_id):
     dl_collection = db.collection("users").document(user_id).collection("dl")
