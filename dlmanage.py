@@ -7,6 +7,7 @@ import datetime
 import requests
 import json
 from datetime import datetime
+import time
 
 dotenv.load_dotenv()
 
@@ -42,7 +43,9 @@ def main( returntomain ):
     button5 = telebot.types.KeyboardButton( "View Modules" )
     button6 = telebot.types.KeyboardButton( "Report Issues" )
     markup.add( button1 ).add( button2 ).add( button3 ).add( button4 ).add( button5 ).add( button6 )
-    reply_text = "Hello " + returntomain.chat.first_name + ", what would you like to do?"
+    user_time = datetime.now().time()
+    greeting = get_greeting(user_time)
+    reply_text = f"{greeting} {returntomain.chat.first_name}. What would you like to do?\n"
     reply_text += "Please select the corresponding buttons.\n\n"
     reply_text += "1) Assignments Deadlines\n"
     reply_text += "2) Personal Planner\n"
@@ -51,6 +54,15 @@ def main( returntomain ):
     reply_text += "5) View Modules\n"
     reply_text += "6) Report Issues"
     bot.send_message( returntomain.chat.id , reply_text , reply_markup = markup )
+    
+#To greet the user haha        
+def get_greeting(current_time):
+    if current_time.hour < 12:
+        return "Good morning"
+    elif current_time.hour < 18:
+        return "Good afternoon"
+    else:
+        return "Good evening"
 
 ##### START COMMAND ######
 @bot.message_handler( commands = ["start"] ) # Handle /start command
@@ -66,7 +78,7 @@ def start( startmessage ):
         db.collection( "users" ).document( userid ).set( data )
         db.collection( "users" ).document( userid ).collection( "mods" ).document("all_mods").set({})
         bot.send_message( startmessage.chat.id, "Hello " + username +", I am ManagementBot. I hope to assist you in better planning your schedule!" )
-        bot.send_message( startmessage.chat.id, "What modules are you taking this semester? (Please enter the first module code)" )
+        bot.send_message( startmessage.chat.id, "Before we begin, what modules are you taking this semester? (Please enter the first module code)" )
 
 ##### SCHOOL TIMETABLE FUNCTION #####
 @bot.message_handler( regexp = "School Timetable" )
@@ -177,14 +189,10 @@ def view_modules( view ):
         markup.add(button1).add(button2)
         bot.send_message( view.chat.id, "You have no modules, please procede to add modules.", reply_markup = markup )
 
-##### INVALID TEXT FUNCTION #####
-@bot.message_handler()
-def invalid_text( text ):
-    bot.send_message( text.chat.id, "Invalid entry, you will be returned to the Main Menu." )
-    main( text )
 
-##############################################################################################
-# FOR DEADLINE (1)
+
+###################################################################################################################################
+# FOR FUNCTION DEADLINE (1)
     
 # Sample data for testing! (Only orbital deadline is real haha) Redo in future with proper databasing
 dl_data = [
@@ -265,6 +273,14 @@ def assignments_deadline(message):
     deadlines = get_dl(user_id)
 
     if deadlines:
+        markup = telebot.types.ReplyKeyboardMarkup(resize_keyboard=True, one_time_keyboard=True)
+        complete_button = telebot.types.KeyboardButton("Mark Assignments as complete")
+        uncomplete_button = telebot.types.KeyboardButton("Mark Assignments as not completed")
+        return_button = telebot.types.KeyboardButton("Return to Main")
+        markup.row(complete_button)
+        markup.row(uncomplete_button)
+        markup.row(return_button)
+
         sorted_dl = sorted(deadlines, key=lambda x: (x['status'] == "COMPLETED", datetime.strptime(x['due_date'], "%d/%m/%y %H%Mhrs")))
         response = "These are your current deadlines:\n"
         for i, deadline in enumerate(sorted_dl, start=1):
@@ -287,14 +303,17 @@ def assignments_deadline(message):
             day_of_week = due_date.strftime("%A")
 
             response += f"{i}) {deadline['title']}:\nDue date: {day_of_week}, {deadline['due_date']} \nTime left: {time_left}\nStatus: {deadline['status']}\n\n"
+        bot.send_message(message.chat.id, response, reply_markup=markup)
     else:
         response = "Yay! You have no pending deadlines, keep up the good work!"
+        bot.send_message(message.chat.id, response)
+        time.sleep(1)
+        main(message)
 
-    bot.reply_to(message, response)
 
 
 # To allow users to mark as completion
-@bot.message_handler(func=lambda message: message.text.lower() == "/completed")
+@bot.message_handler( regexp = "Mark Assignments as complete")
 def mark_completed(message):
     user_id = str(message.from_user.id)
     deadlines = get_dl(user_id)
@@ -364,7 +383,7 @@ def process_completed(message, pending_assignments):
 
 
 # To mark as uncompleted
-@bot.message_handler(func=lambda message: message.text == "/uncompleted")
+@bot.message_handler( regexp = "Mark Assignments as not completed")
 def mark_uncompleted(message):
     user_id = str(message.from_user.id)
     deadlines = get_dl(user_id)
@@ -443,5 +462,20 @@ def update_dl(user_id, deadlines):
         doc_id = deadline['id']
         dl_doc = dl_collection.document(str(doc_id))
         dl_doc.set(deadline)
+        
+        
+# END OF FUNCTION DEADLINE
+##############################################################################################################
+
+
+##### INVALID TEXT FUNCTION #####
+##### PLEASE ENSURE THIS STAYS AT THE BOTTOM OR FUNCTIONS WILL BREAK! #####
+@bot.message_handler()
+def invalid_text( text ):
+    bot.send_message( text.chat.id, "Invalid entry, you will be returned to the Main Menu." )
+    main( text )
+    
+############################################################################
+
 
 bot.infinity_polling()
