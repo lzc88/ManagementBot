@@ -93,107 +93,7 @@ def school_timetable( stt ):
 
 
 
-##### GO TO ADD MODULE FUNCTION #####
-@bot.message_handler( regexp = "Add module" )
-def add_another_module( text ):
-    bot.send_message( text.chat.id, "Please enter the module code." )
 
-##### ADD MODULE FUNCTION #####   
-@bot.message_handler( func = lambda x: True if x.text.upper() in modcodes else False )
-def add_module( mod_code ):
-    userid = str( mod_code.chat.id )
-    formtext = mod_code.text.upper()
-    doc_ref = db.collection( "users" ).document( userid ).collection( "mods" ).document( "all_mods" )
-    doc = doc_ref.get().to_dict()
-    if formtext in doc.keys():
-        doc = db.collection( "users" ).document( userid ).collection( "mods" ).document( formtext ).collection( "module_info" ).document( "basic_info" ).get().to_dict()
-        bot.send_message( mod_code.chat.id, formtext + ": " + doc["title"] + ", is already in your list of modules." )
-    else:
-        db.collection( "users" ).document( userid ).collection( "mods" ).document( formtext ).set({})
-        for i in mods_basic:
-            if i["moduleCode"] == formtext:
-                data = i
-                mod_title = i["title"]
-                db.collection("users").document( userid ).collection( "mods" ).document( "all_mods" ).set( {formtext: None}, merge = True )
-                db.collection("users").document( userid ).collection( "mods" ).document( formtext ).collection( "module_info" ).document("basic_info").set(data)
-                break # Break the for loop once done
-        bot.send_message( mod_code.chat.id, "Ok, I have added " + formtext + ": " + mod_title + ", to your modules." )
-    button1 = telebot.types.KeyboardButton( "View modules" )
-    button2 = telebot.types.KeyboardButton( "Add module" )
-    button3 = telebot.types.KeyboardButton( "Delete module" )
-    button4 = telebot.types.KeyboardButton( "Return to Main" )
-    markup = telebot.types.ReplyKeyboardMarkup( resize_keyboard = True, one_time_keyboard = True )
-    markup.add( button1 ).add( button2 ).add( button3 ).add( button4 )
-    bot.send_message( mod_code.chat.id, "Please select the relevant options." , reply_markup = markup )
-
-##### GO TO DELETE MODULE FUNCTION #####
-@bot.message_handler( regexp = "Delete module" )
-def go_delete_module( text ):
-    userid = str( text.chat.id )
-    doc_ref = db.collection( "users" ).document( userid ).collection( "mods" ).document( "all_mods" )
-    doc = doc_ref.get().to_dict()
-    if len(doc) > 0:
-        markup = telebot.types.ReplyKeyboardMarkup( resize_keyboard = True, one_time_keyboard = True )
-        for mod_code in doc.keys():
-            button = telebot.types.KeyboardButton( "Delete " + mod_code )
-            markup.add( button )
-        button = telebot.types.KeyboardButton( "Return to Main" )
-        markup.add( button )
-        bot.send_message( text.chat.id, "Please select an option.", reply_markup = markup )
-    else:
-        button1 = telebot.types.KeyboardButton( "Add module" )
-        button2 = telebot.types.KeyboardButton( "Return to Main" )
-        markup = telebot.types.ReplyKeyboardMarkup( resize_keyboard = True, one_time_keyboard = True )
-        markup.add( button1 ).add( button2 )
-        bot.send_message( text.chat.id, "You have no modules, please procede to add modules.", reply_markup = markup )
-
-class TextStartsFilter( telebot.custom_filters.AdvancedCustomFilter ):
-    key: str = "text_startswith"
-    def check( self, message, text ):
-        return message.text.startswith( text )
-
-bot.add_custom_filter( TextStartsFilter() )
-
-""" ##### DELETE MODULE FUNCTION #####
-@bot.message_handler( text_startswith = "Delete " )
-def delete_module( mod_code ):
-    userid = str( mod_code.chat.id )
-    mod_to_delete = mod_code.text[ 7: ]
-    title = db.collection( "users" ).document( userid ).collection( "mods" ).document( mod_to_delete ).collection( "module_info" ).document( "basic_info" ).get().to_dict()["title"]
-    db.collection( "users" ).document( userid ).collection( "mods" ).document( mod_to_delete ).delete()
-    db.collection( "users" ).document( userid ).collection( "mods" ).document( "all_mods" ).update( { mod_to_delete : firestore.DELETE_FIELD } )
-    button1 = telebot.types.KeyboardButton( "View modules" )
-    button2 = telebot.types.KeyboardButton( "Add module" )
-    button3 = telebot.types.KeyboardButton( "Delete module" )
-    button4 = telebot.types.KeyboardButton( "Return to Main" )
-    markup = telebot.types.ReplyKeyboardMarkup( resize_keyboard = True, one_time_keyboard = True )
-    markup.add( button1 ).add( button2 ).add( button3 ).add( button4 )
-    bot.send_message( mod_code.chat.id, mod_to_delete + ": " + title + ", has been deleted from your modules." )
-    bot.send_message( mod_code.chat.id, "Please select the relevant options.", reply_markup = markup ) """
-
-##### VIEW MODULES FUNCTION #####
-@bot.message_handler( regexp = "View Modules" )
-def view_modules( view ):
-    userid = str(view.chat.id)
-    doc_ref = db.collection( "users" ).document( userid ).collection( "mods" ).document("all_mods")
-    doc = doc_ref.get().to_dict()
-    if len(doc) > 0:
-        output = "Here are your modules: \n\n"
-        for mod_code in doc.keys():
-            output += mod_code + "\n"
-        bot.send_message( view.chat.id, output )
-        button1 = telebot.types.KeyboardButton( "Add module" )
-        button2 = telebot.types.KeyboardButton( "Delete module" )
-        button3 = telebot.types.KeyboardButton( "Return to Main" )
-        markup = telebot.types.ReplyKeyboardMarkup( resize_keyboard = True, one_time_keyboard = True )
-        markup.add( button1 ).add( button2 ).add( button3 )
-        bot.send_message( view.chat.id, "What would you like to do?" , reply_markup = markup )
-    else:
-        button1 = telebot.types.KeyboardButton( "Add module" )
-        button2 = telebot.types.KeyboardButton( "Return to Main" )
-        markup = telebot.types.ReplyKeyboardMarkup( resize_keyboard = True, one_time_keyboard = True )
-        markup.add(button1).add(button2)
-        bot.send_message( view.chat.id, "You have no modules, please procede to add modules.", reply_markup = markup )
 
 
 
@@ -563,32 +463,6 @@ def add_event_name(message):
     response += "However, if you wish to add a future year, please key in format DD/MM/YYYY HHMM instead"
     bot.send_message(message.chat.id, response)
     bot.register_next_step_handler(message, add_event_datetime, event_name)
-
-
-""" def add_event_datetime(message, event_name):
-    event_datetime = message.text.replace(":", "")  # Remove the colon from the time format
-
-    try:
-        # Convert the user input to datetime object
-        event_time = datetime.strptime(event_datetime, "%d/%m/%Y %H%M")
-        current_time = datetime.now()
-
-        if event_time < current_time:
-            # The entered time is in the past
-            bot.send_message(message.chat.id, "Invalid time. Please enter a future time.")
-            # Prompt the user again to enter a valid time
-            bot.register_next_step_handler(message, add_event_datetime, event_name)
-        else:
-            # The entered time is valid
-            # Call handle_additional_comments to present the buttons for adding or skipping comments
-            handle_additional_comments(message, event_name, event_datetime)
-    except ValueError:
-        # The entered time format is invalid
-        response = "Invalid time format. Please enter the time in DD/MM/YYYY HHMM format.\n"
-        response += "e.g for 5 May 2023 11pm, please type 05/05/2023 2300"
-        bot.send_message(message.chat.id, response)
-        # Prompt the user again to enter a valid time
-        bot.register_next_step_handler(message, add_event_datetime, event_name) """
         
 def add_event_datetime(message, event_name):
     event_datetime = message.text.replace(":", "")  # Remove the colon from the time format
@@ -694,8 +568,8 @@ def delete_event(message):
 
     if pp_data:
         response = "Select the event to delete:\n"
-        response += "Please select the corresponding index to your event title\n\n"
-        response += "e.g If you wish to delete 1) PW Meeting, please select 1"
+        response += "Please select the corresponding index to your event title\n"
+        response += "e.g If you wish to delete 1) PW Meeting, please select 1\n"
         button_array = []
         event_docs = [doc for doc in pp_data]
         for index, doc in enumerate(event_docs, start=1):
@@ -742,9 +616,117 @@ def process_delete_event(message, event_docs):
         # Prompt the user again to enter a valid input
         bot.register_next_step_handler(message, process_delete_event, event_docs)
 
-   
+#### End Of Personal Planner Code #####
+
+###############################################################
+
+#### Function VIEW MODULE CODES ########
+
+##### VIEW MODULES FUNCTION #####
+@bot.message_handler( regexp = "View Modules" )
+def view_modules( view ):
+    userid = str(view.chat.id)
+    doc_ref = db.collection( "users" ).document( userid ).collection( "mods" ).document("all_mods")
+    doc = doc_ref.get().to_dict()
+    if len(doc) > 0:
+        output = "Here are your modules: \n\n"
+        for mod_code in doc.keys():
+            output += mod_code + "\n"
+        bot.send_message( view.chat.id, output )
+        button1 = telebot.types.KeyboardButton( "Add module" )
+        button2 = telebot.types.KeyboardButton( "Delete module" )
+        button3 = telebot.types.KeyboardButton( "Return to Main" )
+        markup = telebot.types.ReplyKeyboardMarkup( resize_keyboard = True, one_time_keyboard = True )
+        markup.add( button1 ).add( button2 ).add( button3 )
+        bot.send_message( view.chat.id, "What would you like to do?" , reply_markup = markup )
+    else:
+        button1 = telebot.types.KeyboardButton( "Add module" )
+        button2 = telebot.types.KeyboardButton( "Return to Main" )
+        markup = telebot.types.ReplyKeyboardMarkup( resize_keyboard = True, one_time_keyboard = True )
+        markup.add(button1).add(button2)
+        bot.send_message( view.chat.id, "You have no modules, please procede to add modules.", reply_markup = markup )
+        
+        
+        
+##### GO TO ADD MODULE FUNCTION #####
+@bot.message_handler( regexp = "Add module" )
+def add_another_module( text ):
+    bot.send_message( text.chat.id, "Please enter the module code." )
 
 
+##### ADD MODULE FUNCTION #####   
+@bot.message_handler( func = lambda x: True if x.text.upper() in modcodes else False )
+def add_module( mod_code ):
+    userid = str( mod_code.chat.id )
+    formtext = mod_code.text.upper()
+    doc_ref = db.collection( "users" ).document( userid ).collection( "mods" ).document( "all_mods" )
+    doc = doc_ref.get().to_dict()
+    if formtext in doc.keys():
+        doc = db.collection( "users" ).document( userid ).collection( "mods" ).document( formtext ).collection( "module_info" ).document( "basic_info" ).get().to_dict()
+        bot.send_message( mod_code.chat.id, formtext + ": " + doc["title"] + ", is already in your list of modules." )
+    else:
+        db.collection( "users" ).document( userid ).collection( "mods" ).document( formtext ).set({})
+        for i in mods_basic:
+            if i["moduleCode"] == formtext:
+                data = i
+                mod_title = i["title"]
+                db.collection("users").document( userid ).collection( "mods" ).document( "all_mods" ).set( {formtext: None}, merge = True )
+                db.collection("users").document( userid ).collection( "mods" ).document( formtext ).collection( "module_info" ).document("basic_info").set(data)
+                break # Break the for loop once done
+        bot.send_message( mod_code.chat.id, "Ok, I have added " + formtext + ": " + mod_title + ", to your modules." )
+    button1 = telebot.types.KeyboardButton( "View modules" )
+    button2 = telebot.types.KeyboardButton( "Add module" )
+    button3 = telebot.types.KeyboardButton( "Delete module" )
+    button4 = telebot.types.KeyboardButton( "Return to Main" )
+    markup = telebot.types.ReplyKeyboardMarkup( resize_keyboard = True, one_time_keyboard = True )
+    markup.add( button1 ).add( button2 ).add( button3 ).add( button4 )
+    bot.send_message( mod_code.chat.id, "Please select the relevant options." , reply_markup = markup )
+
+
+##### GO TO DELETE MODULE FUNCTION #####
+@bot.message_handler( regexp = "Delete module" )
+def go_delete_module( text ):
+    userid = str( text.chat.id )
+    doc_ref = db.collection( "users" ).document( userid ).collection( "mods" ).document( "all_mods" )
+    doc = doc_ref.get().to_dict()
+    if len(doc) > 0:
+        markup = telebot.types.ReplyKeyboardMarkup( resize_keyboard = True, one_time_keyboard = True )
+        for mod_code in doc.keys():
+            button = telebot.types.KeyboardButton( "Delete " + mod_code )
+            markup.add( button )
+        button = telebot.types.KeyboardButton( "Return to Main" )
+        markup.add( button )
+        bot.send_message( text.chat.id, "Please select an option.", reply_markup = markup )
+    else:
+        button1 = telebot.types.KeyboardButton( "Add module" )
+        button2 = telebot.types.KeyboardButton( "Return to Main" )
+        markup = telebot.types.ReplyKeyboardMarkup( resize_keyboard = True, one_time_keyboard = True )
+        markup.add( button1 ).add( button2 )
+        bot.send_message( text.chat.id, "You have no modules, please procede to add modules.", reply_markup = markup )
+
+class TextStartsFilter( telebot.custom_filters.AdvancedCustomFilter ):
+    key: str = "text_startswith"
+    def check( self, message, text ):
+        return message.text.startswith( text )
+
+bot.add_custom_filter( TextStartsFilter() )
+
+##### DELETE MODULE FUNCTION #####
+@bot.message_handler( text_startswith = "Delete " )
+def delete_module( mod_code ):
+    userid = str( mod_code.chat.id )
+    mod_to_delete = mod_code.text[ 7: ]
+    title = db.collection( "users" ).document( userid ).collection( "mods" ).document( mod_to_delete ).collection( "module_info" ).document( "basic_info" ).get().to_dict()["title"]
+    db.collection( "users" ).document( userid ).collection( "mods" ).document( mod_to_delete ).delete()
+    db.collection( "users" ).document( userid ).collection( "mods" ).document( "all_mods" ).update( { mod_to_delete : firestore.DELETE_FIELD } )
+    button1 = telebot.types.KeyboardButton( "View modules" )
+    button2 = telebot.types.KeyboardButton( "Add module" )
+    button3 = telebot.types.KeyboardButton( "Delete module" )
+    button4 = telebot.types.KeyboardButton( "Return to Main" )
+    markup = telebot.types.ReplyKeyboardMarkup( resize_keyboard = True, one_time_keyboard = True )
+    markup.add( button1 ).add( button2 ).add( button3 ).add( button4 )
+    bot.send_message( mod_code.chat.id, mod_to_delete + ": " + title + ", has been deleted from your modules." )
+    bot.send_message( mod_code.chat.id, "Please select the relevant options.", reply_markup = markup )
 
 
 
