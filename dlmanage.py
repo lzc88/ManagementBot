@@ -13,13 +13,17 @@ dotenv.load_dotenv()
 bottoken = os.getenv("bottoken")
 bot = telebot.TeleBot(bottoken)
 
-dbpath = os.getenv("dbpath")
-cred = firebase_admin.credentials.Certificate(dbpath)
+cred = firebase_admin.credentials.Certificate("managementbot-72f56-firebase-adminsdk-7fs64-3c7bb1c603.json")
 dbapp = firebase_admin.initialize_app( cred )
 db = firestore.client()
 
 replace = "{acadYear}"
+replace2 = "{moduleCode}"
 mods_basic_end = os.getenv( "allmods" )
+mod_details_end = os.getenv( "moddetails" )
+
+mod_details_req = requests.get( mod_details_end.replace( replace, "2022-2023" ).replace( replace2, "CS1010S") )
+mod_details = mod_details_req.json()
 
 mods_basic_req = requests.get( mods_basic_end.replace( replace, "2022-2023") )
 mods_basic = mods_basic_req.json() # List of dictionaries, each dictionary represents a module
@@ -64,15 +68,21 @@ def start( startmessage ):
         bot.send_message( startmessage.chat.id, "Hello " + username +", I am ManagementBot. I hope to assist you in better planning your schedule!" )
         bot.send_message( startmessage.chat.id, "What modules are you taking this semester? (Please enter the first module code)" )
 
+##### SCHOOL TIMETABLE FUNCTION #####
+@bot.message_handler( regexp = "School Timetable" )
+def school_timetable( stt ):
+    return None
+
+
+
 ##### GO TO ADD MODULE FUNCTION #####
 @bot.message_handler( regexp = "Add module" )
-def add_another_module( add_another ):
-    userid = add_another.chat.id
-    bot.send_message( add_another.chat.id, "Please enter the module code." )
+def add_another_module( text ):
+    bot.send_message( text.chat.id, "Please enter the module code." )
 
 ##### ADD MODULE FUNCTION #####   
 @bot.message_handler( func = lambda x: True if x.text.upper() in modcodes else False )
-def add( mod_code ):
+def add_module( mod_code ):
     userid = str( mod_code.chat.id )
     formtext = mod_code.text.upper()
     doc_ref = db.collection( "users" ).document( userid ).collection( "mods" ).document( "all_mods" )
@@ -128,13 +138,9 @@ bot.add_custom_filter( TextStartsFilter() )
 
 ##### DELETE MODULE FUNCTION #####
 @bot.message_handler( text_startswith = "Delete " )
-def delete_module( delete ):
-    def delete_collection_db( collection_ref, batch_size ):
-        docs_in_collection = collection_ref.list_documents( page_size = batch_size )
-        for doc in docs_in_collection:
-            doc.delete()
-    userid = str( delete.chat.id )
-    mod_to_delete = delete.text[ 7: ]
+def delete_module( mod_code ):
+    userid = str( mod_code.chat.id )
+    mod_to_delete = mod_code.text[ 7: ]
     title = db.collection( "users" ).document( userid ).collection( "mods" ).document( mod_to_delete ).collection( "module_info" ).document( "basic_info" ).get().to_dict()["title"]
     db.collection( "users" ).document( userid ).collection( "mods" ).document( mod_to_delete ).delete()
     db.collection( "users" ).document( userid ).collection( "mods" ).document( "all_mods" ).update( { mod_to_delete : firestore.DELETE_FIELD } )
@@ -144,8 +150,8 @@ def delete_module( delete ):
     button4 = telebot.types.KeyboardButton( "Return to Main" )
     markup = telebot.types.ReplyKeyboardMarkup( resize_keyboard = True, one_time_keyboard = True )
     markup.add( button1 ).add( button2 ).add( button3 ).add( button4 )
-    bot.send_message( delete.chat.id, mod_to_delete + ": " + title + ", has been deleted from your modules." )
-    bot.send_message( delete.chat.id, "Please select the relevant options.", reply_markup = markup )
+    bot.send_message( mod_code.chat.id, mod_to_delete + ": " + title + ", has been deleted from your modules." )
+    bot.send_message( mod_code.chat.id, "Please select the relevant options.", reply_markup = markup )
 
 ##### VIEW MODULES FUNCTION #####
 @bot.message_handler( regexp = "View Modules" )
