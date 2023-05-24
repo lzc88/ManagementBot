@@ -60,10 +60,17 @@ def start( startmessage ):
     else:
         data = { "username" : username }
         db.collection( "users" ).document( userid ).set( data )
+        db.collection( "users" ).document( userid ).collection( "mods" ).document("all_mods").set({})
         bot.send_message( startmessage.chat.id, "Hello " + username +", I am ManagementBot. I hope to assist you in better planning your schedule!" )
         bot.send_message( startmessage.chat.id, "What modules are you taking this semester? (Please enter the first module code)" )
 
-##### ADDING MODULE FUNCTION #####       
+##### GO TO ADD MODULE FUNCTION #####
+@bot.message_handler( regexp = "Add module" )
+def add_another_module( add_another ):
+    userid = add_another.chat.id
+    bot.send_message( add_another.chat.id, "Please enter the module code." )
+
+##### ADD MODULE FUNCTION #####   
 @bot.message_handler( func = lambda x: True if x.text.upper() in modcodes else False )
 def add( mod_code ):
     userid = str( mod_code.chat.id )
@@ -71,10 +78,10 @@ def add( mod_code ):
     doc_ref = db.collection( "users" ).document( userid ).collection( "mods" ).document( "all_mods" )
     doc = doc_ref.get().to_dict()
     if formtext in doc.keys():
-        doc = doc_ref.get().to_dict()
+        doc = db.collection( "users" ).document( userid ).collection( "mods" ).document( formtext ).collection( "module_info" ).document( "basic_info" ).get().to_dict()
         bot.send_message( mod_code.chat.id, formtext + ": " + doc["title"] + ", is already in your list of modules." )
     else:
-        db.collection( "users" ).document( userid ).collection( "mods" ).document( formtext ).set( {} )
+        db.collection( "users" ).document( userid ).collection( "mods" ).document( formtext ).set({})
         for i in mods_basic:
             if i["moduleCode"] == formtext:
                 data = i
@@ -83,26 +90,21 @@ def add( mod_code ):
                 db.collection("users").document( userid ).collection( "mods" ).document( formtext ).collection( "module_info" ).document("basic_info").set(data)
                 break # Break the for loop once done
         bot.send_message( mod_code.chat.id, "Ok, I have added " + formtext + ": " + mod_title + ", to your modules." )
-    button1 = telebot.types.KeyboardButton( "Add module" )
-    button2 = telebot.types.KeyboardButton( "Return to Main" )
+    button1 = telebot.types.KeyboardButton( "View modules" )
+    button2 = telebot.types.KeyboardButton( "Add module" )
+    button3 = telebot.types.KeyboardButton( "Delete module" )
+    button4 = telebot.types.KeyboardButton( "Return to Main" )
     markup = telebot.types.ReplyKeyboardMarkup( resize_keyboard = True, one_time_keyboard = True )
-    markup.add( button1 ).add( button2 )
+    markup.add( button1 ).add( button2 ).add( button3 ).add( button4 )
     bot.send_message( mod_code.chat.id, "Please select the relevant options." , reply_markup = markup )
-
-##### ADD ANOTHER MODULE FUNCTION #####
-@bot.message_handler( regexp = "Add module" )
-def add_another_module( add_another ):
-    userid = add_another.chat.id
-    bot.send_message( add_another.chat.id, "Please enter the module code." )
 
 ##### GO TO DELETE MODULE FUNCTION #####
 @bot.message_handler( regexp = "Delete module" )
 def go_delete_module( text ):
     userid = str( text.chat.id )
     doc_ref = db.collection( "users" ).document( userid ).collection( "mods" ).document( "all_mods" )
-    doc = doc_ref.get()
-    if doc.exists:
-        doc = doc.to_dict()
+    doc = doc_ref.get().to_dict()
+    if len(doc) > 0:
         markup = telebot.types.ReplyKeyboardMarkup( resize_keyboard = True, one_time_keyboard = True )
         for mod_code in doc.keys():
             button = telebot.types.KeyboardButton( "Delete " + mod_code )
@@ -115,7 +117,7 @@ def go_delete_module( text ):
         button2 = telebot.types.KeyboardButton( "Return to Main" )
         markup = telebot.types.ReplyKeyboardMarkup( resize_keyboard = True, one_time_keyboard = True )
         markup.add( button1 ).add( button2 )
-        bot.send_message( text.chat.id, "You have no modules. Please procede to add modules.", reply_markup = markup )
+        bot.send_message( text.chat.id, "You have no modules, please procede to add modules.", reply_markup = markup )
 
 class TextStartsFilter( telebot.custom_filters.AdvancedCustomFilter ):
     key: str = "text_startswith"
@@ -133,13 +135,16 @@ def delete_module( delete ):
             doc.delete()
     userid = str( delete.chat.id )
     mod_to_delete = delete.text[ 7: ]
+    title = db.collection( "users" ).document( userid ).collection( "mods" ).document( mod_to_delete ).collection( "module_info" ).document( "basic_info" ).get().to_dict()["title"]
     db.collection( "users" ).document( userid ).collection( "mods" ).document( mod_to_delete ).delete()
     db.collection( "users" ).document( userid ).collection( "mods" ).document( "all_mods" ).update( { mod_to_delete : firestore.DELETE_FIELD } )
     button1 = telebot.types.KeyboardButton( "View modules" )
-    button2 = telebot.types.KeyboardButton( "Return to Main" )
+    button2 = telebot.types.KeyboardButton( "Add module" )
+    button3 = telebot.types.KeyboardButton( "Delete module" )
+    button4 = telebot.types.KeyboardButton( "Return to Main" )
     markup = telebot.types.ReplyKeyboardMarkup( resize_keyboard = True, one_time_keyboard = True )
-    markup.add( button1 ).add( button2 )
-    bot.send_message( delete.chat.id, mod_to_delete + " has been deleted from your modules." )
+    markup.add( button1 ).add( button2 ).add( button3 ).add( button4 )
+    bot.send_message( delete.chat.id, mod_to_delete + ": " + title + ", has been deleted from your modules." )
     bot.send_message( delete.chat.id, "Please select the relevant options.", reply_markup = markup )
 
 ##### VIEW MODULES FUNCTION #####
@@ -149,7 +154,6 @@ def view_modules( view ):
     doc_ref = db.collection( "users" ).document( userid ).collection( "mods" ).document("all_mods")
     doc = doc_ref.get().to_dict()
     if len(doc) > 0:
-        doc = doc.to_dict()
         output = "Here are your modules: \n\n"
         for mod_code in doc.keys():
             output += mod_code + "\n"
@@ -165,13 +169,14 @@ def view_modules( view ):
         button2 = telebot.types.KeyboardButton( "Return to Main" )
         markup = telebot.types.ReplyKeyboardMarkup( resize_keyboard = True, one_time_keyboard = True )
         markup.add(button1).add(button2)
-        bot.send_message( view.chat.id, "You have no modules added, please procede to add modules.", reply_markup = markup )
+        bot.send_message( view.chat.id, "You have no modules, please procede to add modules.", reply_markup = markup )
 
+##### INVALID TEXT FUNCTION #####
 @bot.message_handler()
 def invalid_text( text ):
     bot.send_message( text.chat.id, "Invalid entry, you will be returned to the Main Menu." )
     main( text )
-    
+
 ##############################################################################################
 # FOR DEADLINE (1)
     
