@@ -8,16 +8,15 @@ import firebase_admin
 from firebase_admin import firestore
 import datetime
 import requests
-import json
 from datetime import datetime
 import time
 
-dotenv.load_dotenv()
+dotenv.load_dotenv( dotenv_path = "config\.env" )
 
 bottoken = os.getenv("bottoken")
 bot = telebot.TeleBot(bottoken)
 
-cred = firebase_admin.credentials.Certificate("managementbot-72f56-firebase-adminsdk-7fs64-3c7bb1c603.json")
+cred = firebase_admin.credentials.Certificate("config\managementbot-72f56-firebase-adminsdk-7fs64-3c7bb1c603.json")
 dbapp = firebase_admin.initialize_app( cred )
 db = firestore.client()
 
@@ -36,6 +35,7 @@ for i in mods_basic:
     modcodes.append( i["moduleCode"]) # List of all module codes
 
 #############################################################################################################
+
 ##### MAIN MENU FUNCTION #####
 @bot.message_handler( regexp = "Return to Main" )
 def main( returntomain ):
@@ -414,7 +414,7 @@ def delete_personal_planner(message):
 
     bot.send_message(message.chat.id, "Your Personal Planner has been deleted.")
     
-#Main Function 
+# Main Function 
 @bot.message_handler(regexp="Personal Planner")
 def personal_planner(message):
     user_id = str(message.from_user.id)
