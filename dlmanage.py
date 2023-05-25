@@ -749,11 +749,170 @@ def delete_module( mod_code ):
     bot.send_message( mod_code.chat.id, mod_to_delete + ": " + title + ", has been deleted from your modules." )
     bot.send_message( mod_code.chat.id, "Please select the relevant options.", reply_markup = markup )
 
+# END OF VIEW MODULE FUNCTION
+
+##############################################################################################################
+
+
+##############################################################################################################
+# Function 6) Report Issues
+
+@bot.message_handler(regexp="Report Issues")
+def report_issues(message):
+    user_id = str(message.from_user.id)
+    user_name = message.chat.first_name
+
+    # Welcome message and question
+    welcome_message = f"Hello {user_name}, welcome to the report issue section.\n"
+    welcome_message += "May I know whether you want to report an issue such as bugs or provide feedback and suggestions?"
+
+    # Buttons for bug report, feedback, and return to main
+    buttons = [
+        [KeyboardButton("Report Bug")],
+        [KeyboardButton("Provide Feedback")],
+        [KeyboardButton("Return to Main")],
+    ]
+    keyboard = ReplyKeyboardMarkup(resize_keyboard=True, one_time_keyboard=True)
+    for button_row in buttons:
+        keyboard.add(*button_row)
+
+    bot.send_message(message.chat.id, welcome_message, reply_markup=keyboard)
+    bot.register_next_step_handler(message, handle_report_issues_choice)
+
+
+def handle_report_issues_choice(message):
+    user_id = str(message.from_user.id)
+    user_name = message.from_user.username
+    choice = message.text.lower()
+
+    if choice == 'report bug':
+        # Ask for bug report details
+        bot.send_message(message.chat.id, "Please provide details of the bug report:")
+        bot.register_next_step_handler(message, confirm_bug_report, user_id, user_name)
+    elif choice == 'provide feedback':
+        # Ask for feedback details
+        bot.send_message(message.chat.id, "Please provide your feedback and suggestions:")
+        bot.register_next_step_handler(message, confirm_feedback, user_id, user_name)
+    elif choice == 'return to main':
+        # Return to main menu
+        main(message)
+    else:
+        # Invalid choice, prompt again
+        bot.send_message(message.chat.id, "Invalid choice. Please select either 'Report Bug', 'Provide Feedback', or 'Return to Main'.")
+        bot.register_next_step_handler(message, handle_report_issues_choice)
+
+def confirm_bug_report(message, user_id, user_name):
+    bug_report = message.text
+
+    # Confirmation message
+    confirmation_message = f"Hello {user_name}, may I check whether this is the bug you wish to report?\n\n"
+    confirmation_message += bug_report
+
+    # Buttons for confirmation
+    buttons = [
+        KeyboardButton("Yes"),
+        KeyboardButton("Edit"),
+    ]
+    keyboard = ReplyKeyboardMarkup(resize_keyboard=True, one_time_keyboard=True)
+    keyboard.add(*buttons)
+
+    bot.send_message(message.chat.id, confirmation_message, reply_markup=keyboard)
+    bot.register_next_step_handler(message, handle_bug_report_confirmation, user_id, user_name, bug_report)
+
+def handle_bug_report_confirmation(message, user_id, user_name, bug_report):
+    choice = message.text.lower()
+
+    if choice == 'yes':
+        # Save bug report to Firestore
+        issues_ref = db.collection('Issues')
+        issue_doc_ref = issues_ref.document()
+        issue_doc_ref.set({
+            'user_id': user_id,
+            'user_name': user_name,
+            'reports': {
+                'bug_report': bug_report,
+                'timestamp': firestore.SERVER_TIMESTAMP
+            }
+        })
+
+        bot.send_message(message.chat.id, "Bug report has been successfully submitted. Thank you!")
+        report_issues(message)
+    elif choice == 'edit':
+        # Prompt user to edit bug report
+        bot.send_message(message.chat.id, "Please provide the edited bug report:")
+        bot.register_next_step_handler(message, confirm_bug_report, user_id, user_name)
+    else:
+        # Invalid choice, prompt again
+        bot.send_message(message.chat.id, "Invalid choice. Please select either 'Yes' or 'Edit'.")
+        bot.register_next_step_handler(message, handle_bug_report_confirmation, user_id, user_name, bug_report)
+        
+        
+def confirm_feedback(message, user_id, user_name):
+    feedback = message.text
+
+    # Confirmation message
+    confirmation_message = f"Hello {user_name}, may I check whether this is the feedback you wish to provide?\n\n"
+    confirmation_message += feedback
+
+    # Buttons for confirmation
+    buttons = [
+        KeyboardButton("Yes"),
+        KeyboardButton("Edit"),
+    ]
+    keyboard = ReplyKeyboardMarkup(resize_keyboard=True, one_time_keyboard=True)
+    keyboard.add(*buttons)
+
+    bot.send_message(message.chat.id, confirmation_message, reply_markup=keyboard)
+    bot.register_next_step_handler(message, handle_feedback_confirmation, user_id, user_name, feedback)
+    
+    
+def handle_feedback_confirmation(message, user_id, user_name, feedback):
+    choice = message.text.lower()
+
+    if choice == 'yes':
+        # Save feedback to Firestore
+        issues_ref = db.collection('Issues')
+        issue_doc_ref = issues_ref.document()
+        issue_doc_ref.set({
+            'user_id': user_id,
+            'user_name': user_name,
+            'reports': {
+                'feedback': feedback,
+                'timestamp': firestore.SERVER_TIMESTAMP
+            }
+        })
+
+        bot.send_message(message.chat.id, "Feedback has been successfully submitted. Thank you!")
+        report_issues(message)
+    elif choice == 'edit':
+        # Prompt user to edit feedback
+        bot.send_message(message.chat.id, "Please provide the edited feedback:")
+        bot.register_next_step_handler(message, confirm_feedback, user_id, user_name)
+    else:
+        # Invalid choice, prompt again
+        bot.send_message(message.chat.id, "Invalid choice. Please select either 'Yes' or 'Edit'.")
+        bot.register_next_step_handler(message, handle_feedback_confirmation, user_id, user_name, feedback)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
 ##############################################################################################################
-##### PLEASE ENSURE THIS STAYS AT THE BOTTOM OR FUNCTIONS WILL BREAK! #####
+##### PLEASE ENSURE THIS STAYS AT THE BOTTOM OR FUNCTIONS MAY BREAK! #####
 ##### INVALID TEXT FUNCTION #####
 @bot.message_handler()
 def invalid_text( text ):
@@ -763,5 +922,5 @@ def invalid_text( text ):
 
 bot.infinity_polling()
 
-##### PLEASE ENSURE THIS STAYS AT THE BOTTOM OR FUNCTIONS WILL BREAK! #####
-# #############################################################################################################
+##### PLEASE ENSURE THIS STAYS AT THE BOTTOM OR FUNCTIONS MAY BREAK! #####
+##############################################################################################################
