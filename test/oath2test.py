@@ -1,5 +1,6 @@
+# To test for output of request to Canvas API
+
 import requests
-import json
 
 test_token = "21450~ElLuAuUjDyKb5cTRLJ5mUiuTPOS6tNsKoFuO6MGApBLaoYyvqHUYrOTwWxNZ7SOG"
 
