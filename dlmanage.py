@@ -402,7 +402,7 @@ def update_dl(user_id, deadlines):
 # FOR FUNCTION Personal Planner (2)
 
 # To Delete Personal Planner
-@bot.message_handler(regexp="Delete Personal Planner")
+@bot.message_handler(regexp="Delete_all_personal_planner")
 def delete_personal_planner(message):
     user_id = str(message.from_user.id)
     pp_ref = db.collection('users').document(user_id).collection('personal_planner')
@@ -412,7 +412,10 @@ def delete_personal_planner(message):
     for doc in docs:
         doc.reference.delete()
 
-    bot.send_message(message.chat.id, "Your Personal Planner has been deleted.")
+    response = "All events in your Personal Planner has been deleted.\n"
+    response += "You will be sent back to the main menu."
+    bot.send_message(message.chat.id, response)
+    main(message)
     
 #Main Function 
 @bot.message_handler(regexp="Personal Planner")
@@ -422,14 +425,23 @@ def personal_planner(message):
 
     pp_data = pp_ref.get()
     if pp_data:
-        response = "Your Personal Planner:\n"
-        for index, doc in enumerate(pp_data, start=1):
+        event_list = []
+        for doc in pp_data:
             event_data = doc.to_dict()
+            event_data['date'] = datetime.strptime(event_data['date'], "%d/%m/%Y %H%M")
+            event_list.append(event_data)
+
+        # Sort the event list based on the 'date' field in ascending order
+        sorted_events = sorted(event_list, key=lambda x: x['date'])
+
+        response = "Your Personal Planner:\n\n"
+        for index, event_data in enumerate(sorted_events, start=1):
+            formatted_date = event_data['date'].strftime("%A %d/%m/%Y %H%Mhrs")
             response += f"{index}) {event_data['title']}\n"
-            response += f"Date: {event_data['date']}\n"
+            response += f"Date: {formatted_date}\n"
             response += f"Additional Notes: {event_data['notes']}\n\n"
     else:
-        response = "Your Personal Planner is currently empty. Do you wish to add an event?"
+        response = "Your Personal Planner is currently empty. Please add an event to begin."
 
     keyboard = ReplyKeyboardMarkup(resize_keyboard=True, one_time_keyboard=True)
     keyboard.add(KeyboardButton("Add Events"))
@@ -519,17 +531,17 @@ def handle_additional_comments(message, event_name, event_datetime):
     bot.register_next_step_handler(message, handle_additional_comments_choice, event_name, event_datetime)
 
     # Prompt to use the buttons if an invalid response is received
-    bot.send_message(message.chat.id, "Please use the buttons to select your option.")
+    bot.send_message(message.chat.id, "Please use the buttons to select your option. Subsequently you may also reply 'yes' or 'no'.")
 
 def handle_additional_comments_choice(message, event_name, event_datetime):
     choice = message.text.lower()
 
-    if choice == 'add comment':
+    if choice == 'add comment' or choice == 'yes':
         # Remove the keyboard
         remove_keyboard = ReplyKeyboardRemove()
         bot.send_message(message.chat.id, "Please enter the additional comments:", reply_markup=remove_keyboard)
         bot.register_next_step_handler(message, save_event_with_comments, event_name, event_datetime)
-    elif choice == 'skip comment':
+    elif choice == 'skip comment' or choice == 'no':
         # User chooses to skip adding comments
         event_notes = ""
         save_event_details(message, event_name, event_datetime, event_notes)
@@ -578,7 +590,8 @@ def delete_event(message):
             button = KeyboardButton(str(index))
             button_array.append(button)
 
-        button_array.append(KeyboardButton("Back"))
+        response += "\n\nIf you wish to delete all events. Please type in 'Delete_all_personal_planner'"
+        button_array.append(KeyboardButton("back"))
 
         keyboard = ReplyKeyboardMarkup(resize_keyboard=True, one_time_keyboard=True)
         keyboard.add(*button_array)
@@ -586,13 +599,21 @@ def delete_event(message):
         bot.send_message(message.chat.id, response, reply_markup=keyboard)
         bot.register_next_step_handler(message, process_delete_event, event_docs)
     else:
-        bot.send_message(message.chat.id, "Your Personal Planner is currently empty.")
+        bot.send_message(message.chat.id, "You do not have any events available to delete.")
+        personal_planner(message)
 
 def process_delete_event(message, event_docs):
     user_id = str(message.from_user.id)
     event_index = message.text
+    text = message.text.lower()
+    
+    if text == "back":
+        personal_planner(message)
+        
+    elif text == "delete_all_personal_planner":
+        delete_personal_planner(message)
 
-    if event_index.isdigit():
+    elif event_index.isdigit():
         event_index = int(event_index) - 1
 
         if event_index in range(len(event_docs)):
