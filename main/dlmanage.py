@@ -8,47 +8,34 @@ import firebase_admin
 from firebase_admin import firestore
 import datetime
 import requests
+import json
 from datetime import datetime
 import time
 
-dotenv.load_dotenv( dotenv_path = "config\.env" )
+dotenv.load_dotenv()
 
 bottoken = os.getenv("bottoken")
 bot = telebot.TeleBot(bottoken)
 
-cred = firebase_admin.credentials.Certificate("config\managementbot-72f56-firebase-adminsdk-7fs64-3c7bb1c603.json")
+cred = firebase_admin.credentials.Certificate("managementbot-72f56-firebase-adminsdk-7fs64-3c7bb1c603.json")
 dbapp = firebase_admin.initialize_app( cred )
 db = firestore.client()
 
-replace_ay = "{acadYear}"
-replace_mod = "{moduleCode}"
+replace = "{acadYear}"
+replace2 = "{moduleCode}"
 mods_basic_end = os.getenv( "allmods" )
 mod_details_end = os.getenv( "moddetails" )
 
-month_now = datetime.now().month
-if month_now < 8:
-    semester = 0
-else:
-    semester = 1
-ay = "2022-2023"
+mod_details_req = requests.get( mod_details_end.replace( replace, "2022-2023" ).replace( replace2, "CS1010S") )
+mod_details = mod_details_req.json()
 
-mods_basic_req = requests.get( mods_basic_end.replace( replace_ay, ay ) )
+mods_basic_req = requests.get( mods_basic_end.replace( replace, "2022-2023") )
 mods_basic = mods_basic_req.json() # List of dictionaries, each dictionary represents a module
 modcodes = []
 for i in mods_basic:
     modcodes.append( i["moduleCode"]) # List of all module codes
 
 #############################################################################################################
-
-#To greet the user haha        
-def get_greeting(current_time):
-    if current_time.hour < 12:
-        return "Good morning"
-    elif current_time.hour < 18:
-        return "Good afternoon"
-    else:
-        return "Good evening"
-
 ##### MAIN MENU FUNCTION #####
 @bot.message_handler( regexp = "Return to Main" )
 def main( returntomain ):
@@ -71,24 +58,44 @@ def main( returntomain ):
     reply_text += "5) View Modules\n"
     reply_text += "6) Report Issues"
     bot.send_message( returntomain.chat.id , reply_text , reply_markup = markup )
+    
+#To greet the user haha        
+def get_greeting(current_time):
+    if current_time.hour < 12:
+        return "Good morning"
+    elif current_time.hour < 18:
+        return "Good afternoon"
+    else:
+        return "Good evening"
 
 ##### START COMMAND ######
 @bot.message_handler( commands = ["start"] ) # Handle /start command
 def start( startmessage ):
     userid = str(startmessage.chat.id) # Obtain unique chat ID
     username = startmessage.chat.first_name # Obtain user's first name
-    doc_ref = db.collection( "users" ).document( userid ) # Reference to check if User exists in DB
+    doc_ref = db.collection( "users" ).document( userid )
     doc = doc_ref.get()
-    if doc.exists: # True if User exists
-        main( startmessage ) # User is sent to the Main Menu
+    if doc.exists:
+        main( startmessage )
     else:
-        data = { "username" : username } # Dictionary containing user's first name
-        db.collection( "users" ).document( userid ).set( data ) # Create document for user with "data" as field
-        db.collection( "users" ).document( userid ).collection( "mods" ).document( "all_mods" ).set({}) # Create all_mods document for User to be used later when adding/deleting modules
-        response = "Hello " + username +", I am ManagementBot. I hope to assist you in better planning your schedule! \n"
-        response += "You can choose what you want to do by opening the keyboard buttons and selecting the relevant options."
-        bot.send_message( int(userid), response )
-        bot.send_message( int(userid), "Before we begin, what modules are you taking this semester? ( Please enter the first module code. For example, CS1010S )" )
+        data = { "username" : username }
+        db.collection( "users" ).document( userid ).set( data )
+        db.collection( "users" ).document( userid ).collection( "mods" ).document("all_mods").set({})
+        response = "Hello " + username +", I am ManagementBot. I hope to assist you in better planning your schedule!/n"
+        response += "Please provide your response by opening the keyboard buttons and selecting the relevant options."
+        bot.send_message( startmessage.chat.id, response )
+        bot.send_message( startmessage.chat.id, "Before we begin, what modules are you taking this semester? (Please enter the first module code)" )
+
+##### SCHOOL TIMETABLE FUNCTION #####
+@bot.message_handler( regexp = "School Timetable" )
+def school_timetable( stt ):
+    return None
+
+
+
+
+
+
 
 ###################################################################################################################################
 # FOR FUNCTION DEADLINE (1)
@@ -384,7 +391,11 @@ def update_dl(user_id, deadlines):
         dl_doc = dl_collection.document(str(doc_id))
         dl_doc.set(deadline)
         
+        
 # END OF FUNCTION DEADLINE
+
+
+
 
 ##############################################################################################################
 
@@ -403,7 +414,7 @@ def delete_personal_planner(message):
 
     bot.send_message(message.chat.id, "Your Personal Planner has been deleted.")
     
-# Main Function 
+#Main Function 
 @bot.message_handler(regexp="Personal Planner")
 def personal_planner(message):
     user_id = str(message.from_user.id)
@@ -614,86 +625,84 @@ def process_delete_event(message, event_docs):
 ##### VIEW MODULES FUNCTION #####
 @bot.message_handler( regexp = "View Modules" )
 def view_modules( view ):
-    userid = str(view.chat.id) # User's unique ID
-    doc_ref = db.collection( "users" ).document( userid ).collection( "mods" ).document( "all_mods" ) # Reference to check if User has any modules to view
-    doc = doc_ref.get().to_dict() # Dictionary of all User's modules, can be empty
-    if len(doc) > 0: # If the User has modules to view
+    userid = str(view.chat.id)
+    doc_ref = db.collection( "users" ).document( userid ).collection( "mods" ).document("all_mods")
+    doc = doc_ref.get().to_dict()
+    if len(doc) > 0:
         output = "Here are your modules: \n\n"
-        for mod_code in doc.keys(): # Keys of dictionary are the module codes
-            output += mod_code + ", " + doc[mod_code] + "\n"
-        bot.send_message( int(userid), output ) # Output message for User to view modules
+        for mod_code in doc.keys():
+            output += mod_code + "\n"
+        bot.send_message( view.chat.id, output )
         button1 = telebot.types.KeyboardButton( "Add module" )
         button2 = telebot.types.KeyboardButton( "Delete module" )
         button3 = telebot.types.KeyboardButton( "Return to Main" )
-        markup = telebot.types.ReplyKeyboardMarkup( resize_keyboard = True, one_time_keyboard = True ) # Reply message with options to procede
+        markup = telebot.types.ReplyKeyboardMarkup( resize_keyboard = True, one_time_keyboard = True )
         markup.add( button1 ).add( button2 ).add( button3 )
-        bot.send_message( int(userid), "What would you like to do?" , reply_markup = markup )
-    else: # If the User has no modules to view
+        bot.send_message( view.chat.id, "What would you like to do?" , reply_markup = markup )
+    else:
         button1 = telebot.types.KeyboardButton( "Add module" )
         button2 = telebot.types.KeyboardButton( "Return to Main" )
         markup = telebot.types.ReplyKeyboardMarkup( resize_keyboard = True, one_time_keyboard = True )
         markup.add(button1).add(button2)
-        bot.send_message( int(userid), "You have no modules, please procede to add modules.", reply_markup = markup ) # Reply message with options to procede
+        bot.send_message( view.chat.id, "You have no modules, please procede to add modules.", reply_markup = markup )
+        
+        
         
 ##### GO TO ADD MODULE FUNCTION #####
 @bot.message_handler( regexp = "Add module" )
 def add_another_module( text ):
     bot.send_message( text.chat.id, "Please enter the module code." )
 
+
 ##### ADD MODULE FUNCTION #####   
 @bot.message_handler( func = lambda x: True if x.text.upper() in modcodes else False )
 def add_module( mod_code ):
-    userid = str(mod_code.chat.id) # User's unique ID
-    formtext = mod_code.text.upper() # Proper format of module code
-    doc_ref = db.collection( "users" ).document( userid ).collection( "mods" ).document( "all_mods" ) # Reference to check if input module is in DB
-    doc = doc_ref.get().to_dict() # Dictionary of all User's modules, can be empty
-    if formtext in doc.keys(): # If module is already in User's modules
-        title = doc[ formtext ] # Title of module
-        bot.send_message( int(userid), formtext + ": " + title + ", is already in your list of modules." ) # Reply message
+    userid = str( mod_code.chat.id )
+    formtext = mod_code.text.upper()
+    doc_ref = db.collection( "users" ).document( userid ).collection( "mods" ).document( "all_mods" )
+    doc = doc_ref.get().to_dict()
+    if formtext in doc.keys():
+        doc = db.collection( "users" ).document( userid ).collection( "mods" ).document( formtext ).collection( "module_info" ).document( "basic_info" ).get().to_dict()
+        bot.send_message( mod_code.chat.id, formtext + ": " + doc["title"] + ", is already in your list of modules." )
     else:
-        db.collection( "users" ).document( userid ).collection( "mods" ).document( formtext ).set({}) # Create a document for the new module with empty dictionary as field
-        mod_details_req = requests.get( mod_details_end.replace( replace_ay, ay ).replace( replace_mod, formtext ) ) # API request for details of input module
-        mod_details = mod_details_req.json() # All details for input module
-        title = mod_details["title"] # Title of module
-        mod_tt = mod_details["semesterData"][semester]['timetable'] # All lesson types and slots of the module for the current semester
-        mod_lesson_types = []
-        for i in mod_tt: # mod_lesson_types will be a List of the different lesson types at the end of this For loop
-            if i[ "lessonType" ] not in mod_lesson_types:
-                mod_lesson_types.append( i["lessonType"] )
-        db.collection( "users" ).document( userid ).collection( "mods" ).document( "all_mods" ).set( {formtext: title,  "config" : False}, merge = True ) # Add module code and title to all_mods document
-        for i in mod_lesson_types: # In the new module document, create a new collection and in this collection, create documents for each lesson type to store timings and venues in the future
-            db.collection( "users" ).document( userid ).collection( "mods" ).document( formtext ).collection( "module_info" ).document( i ).set( {} )
-        bot.send_message( int(userid), "Ok, I have added " + formtext + ": " + title + ", to your modules." ) # Reply message
+        db.collection( "users" ).document( userid ).collection( "mods" ).document( formtext ).set({})
+        for i in mods_basic:
+            if i["moduleCode"] == formtext:
+                data = i
+                mod_title = i["title"]
+                db.collection("users").document( userid ).collection( "mods" ).document( "all_mods" ).set( {formtext: None}, merge = True )
+                db.collection("users").document( userid ).collection( "mods" ).document( formtext ).collection( "module_info" ).document("basic_info").set(data)
+                break # Break the for loop once done
+        bot.send_message( mod_code.chat.id, "Ok, I have added " + formtext + ": " + mod_title + ", to your modules." )
     button1 = telebot.types.KeyboardButton( "View modules" )
     button2 = telebot.types.KeyboardButton( "Add module" )
     button3 = telebot.types.KeyboardButton( "Delete module" )
     button4 = telebot.types.KeyboardButton( "Return to Main" )
     markup = telebot.types.ReplyKeyboardMarkup( resize_keyboard = True, one_time_keyboard = True )
     markup.add( button1 ).add( button2 ).add( button3 ).add( button4 )
-    bot.send_message( int(userid), "What would you like to do?" , reply_markup = markup ) # Reply message with options to procede
+    bot.send_message( mod_code.chat.id, "Please select the relevant options." , reply_markup = markup )
+
 
 ##### GO TO DELETE MODULE FUNCTION #####
 @bot.message_handler( regexp = "Delete module" )
 def go_delete_module( text ):
-    userid = str(text.chat.id) # User's unique ID
-    doc_ref = db.collection( "users" ).document( userid ).collection( "mods" ).document( "all_mods" ) # Reference to check if User has any modules to delete
-    doc = doc_ref.get().to_dict() # Dictionary of all User's modules, can be empty
-    if len(doc) > 0: # If User has modules to delete
+    userid = str( text.chat.id )
+    doc_ref = db.collection( "users" ).document( userid ).collection( "mods" ).document( "all_mods" )
+    doc = doc_ref.get().to_dict()
+    if len(doc) > 0:
         markup = telebot.types.ReplyKeyboardMarkup( resize_keyboard = True, one_time_keyboard = True )
         for mod_code in doc.keys():
             button = telebot.types.KeyboardButton( "Delete " + mod_code )
             markup.add( button )
         button = telebot.types.KeyboardButton( "Return to Main" )
         markup.add( button )
-        bot.send_message( int(userid), "What would you like to do?", reply_markup = markup ) # Reply with options on what to delete, or Return to Main
-    else: # User has no modules to delete
+        bot.send_message( text.chat.id, "Please select an option.", reply_markup = markup )
+    else:
         button1 = telebot.types.KeyboardButton( "Add module" )
         button2 = telebot.types.KeyboardButton( "Return to Main" )
         markup = telebot.types.ReplyKeyboardMarkup( resize_keyboard = True, one_time_keyboard = True )
         markup.add( button1 ).add( button2 )
-        bot.send_message( int(userid), "You have no modules, please procede to add modules.", reply_markup = markup ) # Reply with options to Add module or Return to Main
-
-##### CUSTOM FILTER TO FILTER MESSAGES STARTING WITH ... #####
+        bot.send_message( text.chat.id, "You have no modules, please procede to add modules.", reply_markup = markup )
 
 class TextStartsFilter( telebot.custom_filters.AdvancedCustomFilter ):
     key: str = "text_startswith"
@@ -705,9 +714,9 @@ bot.add_custom_filter( TextStartsFilter() )
 ##### DELETE MODULE FUNCTION #####
 @bot.message_handler( text_startswith = "Delete " )
 def delete_module( mod_code ):
-    userid = str(mod_code.chat.id) # User's unique ID
-    mod_to_delete = mod_code.text[ 7: ] # Module code of module to delete, in  proper format
-    title = db.collection( "users" ).document( userid ).collection( "mods" ).document( "all_mods" ).get().to_dict()[ mod_to_delete ] # Title of module
+    userid = str( mod_code.chat.id )
+    mod_to_delete = mod_code.text[ 7: ]
+    title = db.collection( "users" ).document( userid ).collection( "mods" ).document( mod_to_delete ).collection( "module_info" ).document( "basic_info" ).get().to_dict()["title"]
     db.collection( "users" ).document( userid ).collection( "mods" ).document( mod_to_delete ).delete()
     db.collection( "users" ).document( userid ).collection( "mods" ).document( "all_mods" ).update( { mod_to_delete : firestore.DELETE_FIELD } )
     button1 = telebot.types.KeyboardButton( "View modules" )
@@ -716,8 +725,10 @@ def delete_module( mod_code ):
     button4 = telebot.types.KeyboardButton( "Return to Main" )
     markup = telebot.types.ReplyKeyboardMarkup( resize_keyboard = True, one_time_keyboard = True )
     markup.add( button1 ).add( button2 ).add( button3 ).add( button4 )
-    bot.send_message( int(userid), mod_to_delete + ": " + title + ", has been deleted from your modules." ) # Reply message
-    bot.send_message( int(userid), "Please select the relevant options.", reply_markup = markup ) # Reply message with options to procede
+    bot.send_message( mod_code.chat.id, mod_to_delete + ": " + title + ", has been deleted from your modules." )
+    bot.send_message( mod_code.chat.id, "Please select the relevant options.", reply_markup = markup )
+
+
 
 
 ##############################################################################################################
