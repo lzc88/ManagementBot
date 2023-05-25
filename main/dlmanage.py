@@ -92,10 +92,10 @@ def start( startmessage ):
         data = { "username" : username } # Dictionary containing user's first name
         db.collection( "users" ).document( userid ).set( data ) # Create document for user with "data" as field
         db.collection( "users" ).document( userid ).collection( "mods" ).document( "all_mods" ).set({}) # Create all_mods document for User to be used later when adding/deleting modules
-        response = "Hello " + username +", I am ManagementBot. I hope to assist you in better planning your schedule!/n"
+        response = "Hello " + username +", I am ManagementBot. I hope to assist you in better planning your schedule! \n"
         response += "You can choose what you want to do by opening the keyboard buttons and selecting the relevant options."
-        bot.send_message( startmessage.chat.id, response )
-        bot.send_message( startmessage.chat.id, "Before we begin, what modules are you taking this semester? (Please enter the first module code. For example, CS1010S." )
+        bot.send_message( int(userid), response )
+        bot.send_message( int(userid), "Before we begin, what modules are you taking this semester? ( Please enter the first module code. For example, CS1010S )" )
 
 ###################################################################################################################################
 # FOR FUNCTION DEADLINE (1)
@@ -621,26 +621,26 @@ def process_delete_event(message, event_docs):
 ##### VIEW MODULES FUNCTION #####
 @bot.message_handler( regexp = "View Modules" )
 def view_modules( view ):
-    userid = view.chat.id # User's unique ID
+    userid = str(view.chat.id) # User's unique ID
     doc_ref = db.collection( "users" ).document( userid ).collection( "mods" ).document( "all_mods" ) # Reference to check if User has any modules to view
     doc = doc_ref.get().to_dict() # Dictionary of all User's modules, can be empty
     if len(doc) > 0: # If the User has modules to view
         output = "Here are your modules: \n\n"
         for mod_code in doc.keys(): # Keys of dictionary are the module codes
             output += mod_code + ", " + doc[mod_code] + "\n"
-        bot.send_message( userid, output ) # Output message for User to view modules
+        bot.send_message( int(userid), output ) # Output message for User to view modules
         button1 = telebot.types.KeyboardButton( "Add module" )
         button2 = telebot.types.KeyboardButton( "Delete module" )
         button3 = telebot.types.KeyboardButton( "Return to Main" )
         markup = telebot.types.ReplyKeyboardMarkup( resize_keyboard = True, one_time_keyboard = True ) # Reply message with options to procede
         markup.add( button1 ).add( button2 ).add( button3 )
-        bot.send_message( userid, "What would you like to do?" , reply_markup = markup )
+        bot.send_message( int(userid), "What would you like to do?" , reply_markup = markup )
     else: # If the User has no modules to view
         button1 = telebot.types.KeyboardButton( "Add module" )
         button2 = telebot.types.KeyboardButton( "Return to Main" )
         markup = telebot.types.ReplyKeyboardMarkup( resize_keyboard = True, one_time_keyboard = True )
         markup.add(button1).add(button2)
-        bot.send_message( userid, "You have no modules, please procede to add modules.", reply_markup = markup ) # Reply message with options to procede
+        bot.send_message( int(userid), "You have no modules, please procede to add modules.", reply_markup = markup ) # Reply message with options to procede
         
 ##### GO TO ADD MODULE FUNCTION #####
 @bot.message_handler( regexp = "Add module" )
@@ -650,13 +650,13 @@ def add_another_module( text ):
 ##### ADD MODULE FUNCTION #####   
 @bot.message_handler( func = lambda x: True if x.text.upper() in modcodes else False )
 def add_module( mod_code ):
-    userid = mod_code.chat.id # User's unique ID
+    userid = str(mod_code.chat.id) # User's unique ID
     formtext = mod_code.text.upper() # Proper format of module code
     doc_ref = db.collection( "users" ).document( userid ).collection( "mods" ).document( "all_mods" ) # Reference to check if input module is in DB
     doc = doc_ref.get().to_dict() # Dictionary of all User's modules, can be empty
     if formtext in doc.keys(): # If module is already in User's modules
         title = doc[ formtext ] # Title of module
-        bot.send_message( userid, formtext + ": " + title + ", is already in your list of modules." ) # Reply message
+        bot.send_message( int(userid), formtext + ": " + title + ", is already in your list of modules." ) # Reply message
     else:
         db.collection( "users" ).document( userid ).collection( "mods" ).document( formtext ).set({}) # Create a document for the new module with empty dictionary as field
         mod_details_req = requests.get( mod_details_end.replace( replace_ay, ay ).replace( replace_mod, formtext ) ) # API request for details of input module
@@ -670,19 +670,19 @@ def add_module( mod_code ):
         db.collection( "users" ).document( userid ).collection( "mods" ).document( "all_mods" ).set( {formtext: title}, merge = True ) # Add module code and title to all_mods document
         for i in mod_lesson_types: # In the new module document, create a new collection and in this collection, create documents for each lesson type to store timings and venues in the future
             db.collection( "users" ).document( userid ).collection( "mods" ).document( formtext ).collection( "module_info" ).document( i ).set( {} )
-        bot.send_message( userid, "Ok, I have added " + formtext + ": " + title + ", to your modules." ) # Reply message
+        bot.send_message( int(userid), "Ok, I have added " + formtext + ": " + title + ", to your modules." ) # Reply message
     button1 = telebot.types.KeyboardButton( "View modules" )
     button2 = telebot.types.KeyboardButton( "Add module" )
     button3 = telebot.types.KeyboardButton( "Delete module" )
     button4 = telebot.types.KeyboardButton( "Return to Main" )
     markup = telebot.types.ReplyKeyboardMarkup( resize_keyboard = True, one_time_keyboard = True )
     markup.add( button1 ).add( button2 ).add( button3 ).add( button4 )
-    bot.send_message( userid, "What would you like to do?" , reply_markup = markup ) # Reply message with options to procede
+    bot.send_message( int(userid), "What would you like to do?" , reply_markup = markup ) # Reply message with options to procede
 
 ##### GO TO DELETE MODULE FUNCTION #####
 @bot.message_handler( regexp = "Delete module" )
 def go_delete_module( text ):
-    userid = text.chat.id # User's unique ID
+    userid = str(text.chat.id) # User's unique ID
     doc_ref = db.collection( "users" ).document( userid ).collection( "mods" ).document( "all_mods" ) # Reference to check if User has any modules to delete
     doc = doc_ref.get().to_dict() # Dictionary of all User's modules, can be empty
     if len(doc) > 0: # If User has modules to delete
@@ -692,13 +692,13 @@ def go_delete_module( text ):
             markup.add( button )
         button = telebot.types.KeyboardButton( "Return to Main" )
         markup.add( button )
-        bot.send_message( userid, "What would you like to do?", reply_markup = markup ) # Reply with options on what to delete, or Return to Main
+        bot.send_message( int(userid), "What would you like to do?", reply_markup = markup ) # Reply with options on what to delete, or Return to Main
     else: # User has no modules to delete
         button1 = telebot.types.KeyboardButton( "Add module" )
         button2 = telebot.types.KeyboardButton( "Return to Main" )
         markup = telebot.types.ReplyKeyboardMarkup( resize_keyboard = True, one_time_keyboard = True )
         markup.add( button1 ).add( button2 )
-        bot.send_message( userid, "You have no modules, please procede to add modules.", reply_markup = markup ) # Reply with options to Add module or Return to Main
+        bot.send_message( int(userid), "You have no modules, please procede to add modules.", reply_markup = markup ) # Reply with options to Add module or Return to Main
 
 ##### CUSTOM FILTER TO FILTER MESSAGES STARTING WITH ... #####
 
@@ -712,7 +712,7 @@ bot.add_custom_filter( TextStartsFilter() )
 ##### DELETE MODULE FUNCTION #####
 @bot.message_handler( text_startswith = "Delete " )
 def delete_module( mod_code ):
-    userid = mod_code.chat.id # User's unique ID
+    userid = str(mod_code.chat.id) # User's unique ID
     mod_to_delete = mod_code.text[ 7: ] # Module code of module to delete, in  proper format
     title = db.collection( "users" ).document( userid ).collection( "mods" ).document( "all_mods" ).get().to_dict()[ mod_to_delete ] # Title of module
     db.collection( "users" ).document( userid ).collection( "mods" ).document( mod_to_delete ).delete()
@@ -723,8 +723,8 @@ def delete_module( mod_code ):
     button4 = telebot.types.KeyboardButton( "Return to Main" )
     markup = telebot.types.ReplyKeyboardMarkup( resize_keyboard = True, one_time_keyboard = True )
     markup.add( button1 ).add( button2 ).add( button3 ).add( button4 )
-    bot.send_message( mod_code.chat.id, mod_to_delete + ": " + title + ", has been deleted from your modules." ) # Reply message
-    bot.send_message( mod_code.chat.id, "Please select the relevant options.", reply_markup = markup ) # Reply message with options to procede
+    bot.send_message( int(userid), mod_to_delete + ": " + title + ", has been deleted from your modules." ) # Reply message
+    bot.send_message( int(userid), "Please select the relevant options.", reply_markup = markup ) # Reply message with options to procede
 
 
 ##############################################################################################################
