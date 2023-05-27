@@ -20,6 +20,9 @@ cred = firebase_admin.credentials.Certificate("config\managementbot-72f56-fireba
 dbapp = firebase_admin.initialize_app( cred )
 db = firestore.client()
 
+# Define the user IDs of approved admins
+approved_admins = ["966269150","291900788"]  
+
 replace_ay = "{acadYear}"
 replace_mod = "{moduleCode}"
 mods_basic_end = os.getenv( "allmods" )
@@ -883,6 +886,330 @@ def handle_feedback_confirmation(message, user_id, user_name, feedback):
         bot.register_next_step_handler(message, handle_feedback_confirmation, user_id, user_name, feedback)
 
 
+# To retrieve the reports made
+issues = []
+
+@bot.message_handler(regexp="retrieve_issues_reported")
+def retrieve_issues_reported(message):
+    user_id = str(message.from_user.id)
+
+    # Check if the user is an approved admin
+    if user_id not in approved_admins:
+        bot.send_message(message.chat.id, "You are not authorized to access this function.")
+        return
+
+    issues_ref = db.collection('Issues')
+    issues_data = issues_ref.stream()
+
+    # Reset the issues list
+    issues.clear()
+
+    for issue in issues_data:
+        issue_data = issue.to_dict()
+        user_name = issue_data.get('user_name')
+        bug_report = issue_data.get('reports', {}).get('bug_report')
+        feedback = issue_data.get('reports', {}).get('feedback')
+        timestamp = issue_data.get('reports', {}).get('timestamp')
+        status = issue_data.get('reports', {}).get('status', 'NOT RESOLVED')  # Set default status to "NOT RESOLVED"
+        notes = issue_data.get('reports', {}).get('notes', '')  # Empty string by default
+
+        if bug_report:
+            issues.append({
+                'Type': 'Bug Report',
+                'Report': bug_report,
+                'User_reported': user_name,
+                'Time Reported': timestamp,
+                'Status': status,
+                'Notes': notes,
+                'DocRef': issue.id  # Store the document reference for resolving the issue
+            })
+        elif feedback:
+            issues.append({
+                'Type': 'Feedback',
+                'Report': feedback,
+                'User_reported': user_name,
+                'Time Reported': timestamp,
+                'Status': status,
+                'Notes': notes,
+                'DocRef': issue.id  # Store the document reference for resolving the issue
+            })
+
+    response = "Reports:\n\n"
+
+    response += "Bugs Reported:\n"
+    bug_reports = [issue for issue in issues if issue['Type'] == 'Bug Report']
+    if bug_reports:
+        for i, bug_report in enumerate(bug_reports, start=1):
+            response += f"{i}) Bug Report: {bug_report['Report']}\n"
+            response += f"   User_reported: {bug_report['User_reported']}\n"
+            response += f"   Time Reported: {bug_report['Time Reported'].strftime('%Y-%m-%d %H:%M:%S')}\n"
+            response += f"   Status: {bug_report['Status']}\n"
+            response += f"   Notes: {bug_report['Notes']}\n\n"
+    else:
+        response += "No bug reports found.\n\n"
+
+    response += "Feedback Given:\n"
+    feedbacks = [issue for issue in issues if issue['Type'] == 'Feedback']
+    if feedbacks:
+        for i, feedback in enumerate(feedbacks, start=1):
+            response += f"{i}) Feedback: {feedback['Report']}\n"
+            response += f"   User_reported: {feedback['User_reported']}\n"
+            response += f"   Time Reported: {feedback['Time Reported'].strftime('%Y-%m-%d %H:%M:%S')}\n"
+            response += f"   Status: {feedback['Status']}\n"
+            response += f"   Notes: {feedback['Notes']}\n\n"
+    else:
+        response += "No feedbacks found.\n\n"
+
+    keyboard = ReplyKeyboardMarkup(resize_keyboard=True, one_time_keyboard=True)
+    keyboard.add(KeyboardButton("Mark issues as RESOLVED"))
+    keyboard.add(KeyboardButton("Mark issues as NOT RESOLVED"))
+    keyboard.add(KeyboardButton("Edit Issue Notes"))
+    keyboard.add(KeyboardButton("Return to Main"))
+
+    bot.send_message(message.chat.id, response, reply_markup=keyboard)
+ 
+
+
+
+@bot.message_handler(regexp="Mark issues as RESOLVED")
+def mark_resolve(message):
+    user_id = str(message.from_user.id)
+
+    # Check if the user is an approved admin
+    if user_id not in approved_admins:
+        bot.send_message(message.chat.id, "You are not authorized to access this function.")
+        return
+
+    # Separate issues into resolved and unresolved categories
+    unresolved_issues = [issue for issue in issues if issue['Status'] == 'NOT RESOLVED']
+    resolved_issues = [issue for issue in issues if issue['Status'] == 'RESOLVED']
+
+    if not unresolved_issues:
+        bot.send_message(message.chat.id, "No unresolved issues found.")
+        return
+
+    # Create a keyboard markup for selecting the unresolved issue to mark as resolved
+    markup = ReplyKeyboardMarkup(row_width=1, one_time_keyboard=True)
+
+    for i, issue in enumerate(unresolved_issues, start=1):
+        markup.add(KeyboardButton(f"{i}) {issue['Type']}: {issue['Report']}"))
+
+    bot.send_message(message.chat.id, "Select the issue to mark as resolved:", reply_markup=markup)
+
+    # Set the next handler to process the selected issue and pass the unresolved_issues list
+    bot.register_next_step_handler(message, process_selected_issue, unresolved_issues)
+
+
+def process_selected_issue(message, issues):
+    try:
+        selected_index = int(message.text.split(")")[0]) - 1
+        selected_issue = issues[selected_index]
+
+        # Update the status of the selected issue
+        issue_doc_ref = db.collection('Issues').document(selected_issue['DocRef'])
+        issue_doc_ref.update({'reports.status': 'RESOLVED'})
+
+        # Remove the resolved issue from the list
+        issues.remove(selected_issue)
+
+        bot.send_message(message.chat.id, "Issue marked as resolved successfully.", reply_markup=ReplyKeyboardRemove())
+    except (ValueError, IndexError):
+        bot.send_message(message.chat.id, "Invalid selection. Please try again.")
+
+    # Call the retrieve_issues_reported function to display the updated list
+    retrieve_issues_reported(message)
+    
+@bot.message_handler(regexp="Mark issues as NOT RESOLVED")
+def mark_unresolve(message):
+    user_id = str(message.from_user.id)
+
+    # Check if the user is an approved admin
+    if user_id not in approved_admins:
+        bot.send_message(message.chat.id, "You are not authorized to access this function.")
+        return
+
+    # Separate issues into resolved and unresolved categories
+    unresolved_issues = [issue for issue in issues if issue['Status'] == 'NOT RESOLVED']
+    resolved_issues = [issue for issue in issues if issue['Status'] == 'RESOLVED']
+
+    if not resolved_issues:
+        bot.send_message(message.chat.id, "No resolved issues found.")
+        return
+
+    # Create a keyboard markup for selecting the resolved issue to mark as unresolved
+    markup = ReplyKeyboardMarkup(row_width=1, one_time_keyboard=True)
+
+    for i, issue in enumerate(resolved_issues, start=1):
+        markup.add(KeyboardButton(f"{i}) {issue['Type']}: {issue['Report']}"))
+
+    bot.send_message(message.chat.id, "Select the issue to mark as unresolved:", reply_markup=markup)
+
+    # Set the next handler to process the selected issue and pass the resolved_issues list
+    bot.register_next_step_handler(message, process_selected_issue_unresolve, resolved_issues)
+
+def process_selected_issue_unresolve(message, resolved_issues):
+    try:
+        selected_index = int(message.text.split(")")[0]) - 1
+        selected_issue = resolved_issues[selected_index]
+
+        # Update the status of the selected issue
+        issue_doc_ref = db.collection('Issues').document(selected_issue['DocRef'])
+        issue_doc_ref.update({'reports.status': 'NOT RESOLVED'})
+
+        # Remove the resolved status from the issue
+        selected_issue['Status'] = 'NOT RESOLVED'
+
+        bot.send_message(message.chat.id, "Issue marked as unresolved successfully.", reply_markup=ReplyKeyboardRemove())
+    except (ValueError, IndexError):
+        bot.send_message(message.chat.id, "Invalid selection. Please try again.")
+
+    # Call the retrieve_issues_reported function to display the updated list
+    retrieve_issues_reported(message)
+
+
+
+@bot.message_handler(regexp="Edit Issue Notes")
+def edit_issues(message):
+    user_id = str(message.from_user.id)
+    state = {}  # Create a state dictionary for the user
+
+    # Check if the user is an approved admin
+    if user_id not in approved_admins:
+        bot.send_message(message.chat.id, "You are not authorized to access this function.")
+        return
+
+    issues_ref = db.collection('Issues')
+    issues_data = issues_ref.get()
+    issues = []
+
+    if issues_data:
+        for issue in issues_data:
+            issue_data = issue.to_dict()
+            user_name = issue_data.get('user_name')
+            bug_report = issue_data.get('reports', {}).get('bug_report')
+            feedback = issue_data.get('reports', {}).get('feedback')
+            timestamp = issue_data.get('reports', {}).get('timestamp')
+            status = issue_data.get('reports', {}).get('status', 'NOT RESOLVED')
+            notes = issue_data.get('reports', {}).get('notes', '')  # Empty string by default
+
+            if bug_report:
+                issues.append({
+                    'Type': 'Bug Report',
+                    'Report': bug_report,
+                    'User_reported': user_name,
+                    'Time Reported': timestamp,
+                    'Status': status,
+                    'Notes': notes,
+                    'DocRef': issue.id  # Store the document reference for resolving the issue
+                })
+            elif feedback:
+                issues.append({
+                    'Type': 'Feedback',
+                    'Report': feedback,
+                    'User_reported': user_name,
+                    'Time Reported': timestamp,
+                    'Status': status,
+                    'Notes': notes,
+                    'DocRef': issue.id  # Store the document reference for resolving the issue
+                })
+
+    # Check if there are any issues
+    if len(issues) == 0:
+        bot.send_message(message.chat.id, "No issues found.")
+        return
+
+    # Create a keyboard markup for selecting the issues
+    markup = ReplyKeyboardMarkup(row_width=1, one_time_keyboard=True)
+    for i, issue in enumerate(issues, start=1):
+        markup.add(KeyboardButton(f"{i}) {issue['Type']}: {issue['Report']}"))
+
+    bot.send_message(message.chat.id, "Select the issue to edit its notes:", reply_markup=markup)
+
+    # Store the issues data and the user's state in the state dictionary
+    state['issues'] = issues
+    state['user_id'] = user_id
+
+    # Register the next step handler to handle the selected issue
+    bot.register_next_step_handler(message, handle_selected_issue, state)
+
+
+def handle_selected_issue(message, state):
+    selected_option = message.text
+    issues = state['issues']
+
+    # Extract the index from the selected option
+    try:
+        selected_index = int(selected_option.split(')')[0]) - 1
+    except ValueError:
+        bot.send_message(message.chat.id, "Invalid issue selection.")
+        return
+
+    # Check if the selected index is valid
+    if selected_index < 0 or selected_index >= len(issues):
+        bot.send_message(message.chat.id, "Invalid issue selection.")
+        return
+
+    # Retrieve the selected issue
+    selected_issue = issues[selected_index]
+    state['selected_issue'] = selected_issue
+
+    # Prompt the user to enter the new notes
+    bot.send_message(message.chat.id, "Please enter the new notes:")
+
+    # Register the next step handler to handle the user's input
+    bot.register_next_step_handler(message, handle_notes_input, state)
+
+
+def handle_notes_input(message, state):
+    feedback = message.text
+    state['feedback'] = feedback
+
+    # Confirmation message
+    confirmation_message = f"Hello, may I check whether this is the feedback you wish to provide?\n\n"
+    confirmation_message += feedback
+
+    # Create a keyboard markup for confirmation
+    buttons = [
+        KeyboardButton("Yes"),
+        KeyboardButton("Edit"),
+    ]
+    keyboard = ReplyKeyboardMarkup(resize_keyboard=True, one_time_keyboard=True)
+    keyboard.add(*buttons)
+
+    # Remove the previous keyboard
+    remove_keyboard = ReplyKeyboardRemove()
+
+    # Send the confirmation message with the keyboard
+    bot.send_message(message.chat.id, confirmation_message, reply_markup=keyboard)
+
+    # Register the next step handler to handle the confirmation
+    bot.register_next_step_handler(message, handle_confirmation, state)
+
+
+def handle_confirmation(message, state):
+    confirmation = message.text.lower()
+
+    if confirmation == "yes":
+        # Update the notes of the selected issue
+        selected_issue = state['selected_issue']
+        selected_issue['Notes'] = state['feedback']
+
+        # Update the issue in the database
+        update_issue_notes(selected_issue)
+
+        bot.send_message(message.chat.id, "Notes updated successfully.")
+        retrieve_issues_reported(message)
+    elif confirmation == "edit":
+        bot.send_message(message.chat.id, "Please re-enter the new notes:")
+        bot.register_next_step_handler(message, handle_notes_input, state)
+    else:
+        bot.send_message(message.chat.id, "Invalid confirmation response.")
+
+
+def update_issue_notes(issue):
+    doc_ref = db.collection('Issues').document(issue['DocRef'])
+    doc_ref.update({'reports.notes': issue['Notes']})
+    
 #### End of Function 6 Report Issues
 
 ##############################################################################################################
