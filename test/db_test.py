@@ -19,3 +19,10 @@ for doc in docs:
     types.append( doc.id )
 
 print( types )
+
+# Getting config lesson status of modules
+
+docs2 = db.collection( "users" ).document( my_id ).collection( "mods" ).document( "all_mods" ).get()
+
+docs2out = docs2.to_dict()
+

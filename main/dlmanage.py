@@ -686,9 +686,9 @@ def add_module( mod_code ):
         for i in mod_tt: # mod_lesson_types will be a List of the different lesson types at the end of this For loop
             if i[ "lessonType" ] not in mod_lesson_types:
                 mod_lesson_types.append( i["lessonType"] )
-        db.collection( "users" ).document( userid ).collection( "mods" ).document( "all_mods" ).set( {formtext: title,  "config" : False}, merge = True ) # Add module code and title to all_mods document
+        db.collection( "users" ).document( userid ).collection( "mods" ).document( "all_mods" ).set( {formtext: title }, merge = True ) # Add module code and title to all_mods document
         for i in mod_lesson_types: # In the new module document, create a new collection and in this collection, create documents for each lesson type to store timings and venues in the future
-            db.collection( "users" ).document( userid ).collection( "mods" ).document( formtext ).collection( "module_info" ).document( i ).set( {} )
+            db.collection( "users" ).document( userid ).collection( "mods" ).document( formtext ).collection( "module_info" ).document( i ).set( {"config" : False} )
         bot.send_message( int(userid), "Ok, I have added " + formtext + ": " + title + ", to your modules." ) # Reply message
     button1 = telebot.types.KeyboardButton( "View modules" )
     button2 = telebot.types.KeyboardButton( "Add module" )
