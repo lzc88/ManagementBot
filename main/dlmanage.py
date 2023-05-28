@@ -779,7 +779,7 @@ def school_timetable( message ):
              view_timetable( message )
         else:
             button1 = telebot.types.KeyboardButton( "Configure lessons" )
-            button2 = telebot.types.KeyboardButton( "Ignore and procede to view school timetable" )
+            button2 = telebot.types.KeyboardButton( "Ignore and proceed to view school timetable" )
             button3 = telebot.types.KeyboardButton( "Return to Main" )
             markup = telebot.types.ReplyKeyboardMarkup( resize_keyboard = True, one_time_keyboard = True )
             markup.add( button1 ).add( button2 ).add( button3 )
@@ -800,6 +800,8 @@ def prompt_config_lesson( message, unconfigured_list ):
             markup.add( button )
         bot.send_message( message.chat.id, "Which lesson would you like to configure?", reply_markup = markup )
         bot.register_next_step_handler( message, config_lesson1, unconfigured_list )
+    elif message.text == "Ignore and proceed to view school timetable":
+        view_timetable( message )
     else:
         bot.send_message( message.chat.id, "That is an invalid input." )
         school_timetable( message )
@@ -827,6 +829,7 @@ def config_lesson2( message, lesson ):
     check_ref = db.collection( "users" ).document( userid ).collection( "mods" ).document( mod_code ).collection( "lessons" ).document( lesson ).get().to_dict()
     if check_ref["config"]:
         bot.send_message( int(userid), f'Your timing for {lesson} has been configured!')
+        regenerate( message )
         school_timetable( message )
     else:
         button1 = telebot.types.KeyboardButton("School Timetable")
@@ -849,11 +852,12 @@ def view_timetable( message ):
         for mod in mods:
             lesson_types = db.collection( "users" ).document( userid ).collection( "mods" ).document( mod.id ).collection( "lessons" ).stream()
             for lesson in lesson_types:
-                slots = db.collection( "users" ).document( userid ).collection( "mods" ).document( mod.id ).collection( "lessons" ).document( lesson.id ).get().to_dict()["timings"]
-                for slot in slots:
-                    if week_no in slot["weeks"]:
-                        slot[ "name" ] = lesson.id
-                        lesson_list.append( slot )
+                slots = db.collection( "users" ).document( userid ).collection( "mods" ).document( mod.id ).collection( "lessons" ).document( lesson.id ).get().to_dict()
+                if slots["config"]:
+                    for slot in slots["timings"]:
+                        if week_no in slot["weeks"]:
+                            slot[ "name" ] = lesson.id
+                            lesson_list.append( slot )
         db.collection( "users" ).document( userid ).collection( "timetable" ).document( "this_week" ).set( { str(week_no) : lesson_list } )
         view_timetable( message )
     else:
@@ -885,8 +889,15 @@ def view_timetable( message ):
         if text == "":
             bot.send_message( int(userid) , f"You have no more lessons for week {week_no}. Have a good rest!" )
         else:
-            bot.send_message( int(userid), f"Here is your time table for week {week_no}" )
-            bot.send_message( int(userid), text ) 
+            button1 = telebot.types.KeyboardButton( "Return to Main" )
+            markup = telebot.types.ReplyKeyboardMarkup( resize_keyboard = True, one_time_keyboard = True )
+            markup.add( button1 )
+            bot.send_message( int(userid), f"Here is your time table for week {week_no}!" )
+            bot.send_message( int(userid), text, reply_markup = markup )
+
+def regenerate( message ):
+    userid = str( message.chat.id )
+    db.collection( "users" ).document( userid ).collection( "timetable" ).document( "this_week" ).set({})
 
 
 ##############################################################################################################

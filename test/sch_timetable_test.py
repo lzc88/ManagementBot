@@ -83,7 +83,7 @@ def school_timetable( message ):
         button2 = telebot.types.KeyboardButton( "Return to Main" )
         markup = telebot.types.ReplyKeyboardMarkup( resize_keyboard = True, one_time_keyboard = True )
         markup.add(button1).add(button2)
-        bot.send_message( int(userid), "You currently do not have any modules, please procede to Add modules or Return to Main.",reply_markup = markup )
+        bot.send_message( int(userid), "You currently do not have any modules, please procede to Add modules or Return to Main.", reply_markup = markup )
 
 def prompt_config_lesson( message, unconfigured_list ):
     if message.text == "Configure lessons":
@@ -128,8 +128,9 @@ def config_lesson2( message, lesson ):
         markup.add( button1 ).add( button2 )
         bot.send_message( int(userid), "Your lesson slot could not be found. Please return to School Timetable to try again. If error persists, kindly feedback this issue to us via the Main menu, thank you!", reply_markup = markup )
 
-#################################################
+##################################
 test_date = datetime( 2023, 2, 6 )
+##################################
 def view_timetable( message ):
     userid = str( message.chat.id )
     week_no = math.floor(((test_date - sem_start).days)/7 + 1) # The current week number
