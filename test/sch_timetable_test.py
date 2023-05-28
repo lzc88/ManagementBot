@@ -69,7 +69,7 @@ def school_timetable( message ):
                     unconfigured += f'{doc2.id} \n\n'
                     unconfigured_list.append( doc2.id )
         if unconfigured == "":
-            bot.send_message( int(userid), "Here is your school timetable!" )
+             view_timetable( message )
         else:
             button1 = telebot.types.KeyboardButton( "Configure lessons" )
             button2 = telebot.types.KeyboardButton( "Ignore and procede to view school timetable" )
@@ -129,20 +129,62 @@ def config_lesson2( message, lesson ):
         bot.send_message( int(userid), "Your lesson slot could not be found. Please return to School Timetable to try again. If error persists, kindly feedback this issue to us via the Main menu, thank you!", reply_markup = markup )
 
 #################################################
-
+test_date = datetime( 2023, 2, 6 )
 def view_timetable( message ):
-    userid = str(message.chat.id)
-    diff = test_date - sem_start
-    week = math.ceil( diff.days/7 )
-    output = ""
-    docs = db.collection( "users" ).document( userid ).collection( "mods" ).stream()
-    for doc in docs:
-        lessons = db.collection( "users" ).document( userid ).collection( "mods" ).document( doc.id ).collection( "module_info" ).stream()
-        for lesson in lessons:
-            timing = db.collection( "users" ).document( userid ).collection( "mods" ).document( doc.id ).collection( "module_info" ).document( lesson.id ).get().to_dict()
-            for classes in timing["timings"]:
-                if week in classes["weeks"]:
-                    None
+    userid = str( message.chat.id )
+    week_no = math.floor(((test_date - sem_start).days)/7 + 1) # The current week number
+    week_ref = db.collection( "users" ).document( userid ).collection( "timetable" ).document( "this_week" )
+    this_week = week_ref.get().to_dict()
+    if str(week_no) not in this_week: # If this week's timetable does not match with current week's number
+        bot.send_message( int(userid) , f"Please hold on while I generate your timetable for week {week_no}, thank you!" )
+        lesson_list = []
+        mods = db.collection( "users" ).document( userid ).collection( "mods" ).stream()
+        for mod in mods:
+            lesson_types = db.collection( "users" ).document( userid ).collection( "mods" ).document( mod.id ).collection( "lessons" ).stream()
+            for lesson in lesson_types:
+                slots = db.collection( "users" ).document( userid ).collection( "mods" ).document( mod.id ).collection( "lessons" ).document( lesson.id ).get().to_dict()["timings"]
+                for slot in slots:
+                    if week_no in slot["weeks"]:
+                        slot[ "name" ] = lesson.id
+                        lesson_list.append( slot )
+        db.collection( "users" ).document( userid ).collection( "timetable" ).document( "this_week" ).set( { str(week_no) : lesson_list } )
+        view_timetable( message )
+    else:
+        bot.send_message( int(userid), f"Please wait while we fetch your timetable for week {week_no}, thank you!" )
+        tt_ref = db.collection( "users" ).document( userid ).collection( "timetable" ).document( "this_week" )
+        tt = tt_ref.get().to_dict()
+        for lesson in tt[str(week_no)]:
+            day = lesson["day"]
+            if days.index( day ) < test_date.weekday():
+                tt_ref.update( { str(week_no) : firestore.ArrayRemove( [lesson] ) } )
+        tt_list = []
+        for lesson in tt[str(week_no)]:
+            tt_list.append( lesson )
+        tt_dic = {}
+        for lesson in tt_list:
+            if lesson['day'] not in tt_dic:
+                tt_dic[ lesson['day'] ] = [ lesson ]
+            else:
+                tt_dic[ lesson['day'] ].append( lesson )
+        for day in tt_dic:
+            tt_dic[day] = sorted( tt_dic[day], key = lambda x: x["startTime"] )
+        tt_days = sorted( tt_dic, key = lambda x: days.index(x) ) # Sorted list of dictionary keys
+        text = ""
+        for day in tt_days:
+            text += day.upper() + "\n\n"
+            for lesson in tt_dic[day]:
+                text += f'{lesson["name"]}\nStart: {lesson["startTime"]}\nEnd: {lesson["endTime"]}\nVenue: {lesson["venue"]}\n\n'
+            text += "\n"
+        if text == "":
+            bot.send_message( int(userid) , f"You have no more lessons for week {week_no}. Have a good rest!" )
+        else:
+            bot.send_message( int(userid), f"Here is your time table for week {week_no}" )
+            bot.send_message( int(userid), text ) 
+            
+        
+        
+
+
 
 
 bot.infinity_polling()
