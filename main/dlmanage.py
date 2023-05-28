@@ -99,6 +99,7 @@ def start( startmessage ):
         db.collection( "users" ).document( userid ).set( data ) # Create document for user with "data" as field
         db.collection( "users" ).document( userid ).collection( "all_mods" ).document( "all_mods" ).set({}) # Create all_mods document for User to be used later when adding/deleting modules
         db.collection( "users" ).document( userid ).collection( "timetable" ).document( "this_week" ).set({}) # Create this_week document for User to be used later to view timetable
+        db.collection( "users" ).document( userid ).collection( "exam" ).document( "timings" ).set({})
         response = "Hello " + username +", I am ManagementBot. I hope to assist you in better planning your schedule! \n"
         response += "You can choose what you want to do by opening the keyboard buttons and selecting the relevant options."
         bot.send_message( int(userid), response )
@@ -646,7 +647,37 @@ def process_delete_event(message, event_docs):
 
 ###############################################################
 
-#### Function VIEW MODULE CODES ########
+##### HELPER FUNCTION TO BE USED IN ADD MODULE #####
+def add_exam( userid, mod_code ):
+    mod_details_req = requests.get( mod_details_end.replace( replace_ay, ay ).replace( replace_mod, mod_code ) )
+    mod_details = mod_details_req.json()['semesterData'][semester]
+    if 'examDate' in mod_details:
+        db.collection( "users" ).document( userid ).collection( "exam" ).document( "timings" ).update( { mod_code : [ mod_details['examDate'], mod_details['examDuration'] ] } )
+
+##### HELPER FUNCTION TO BE USED IN DEL MODULE #####
+def remove_exam( userid, mod_code ):
+    db.collection( "users" ).document( userid ).collection( "exam" ).document( "timings" ).update( { mod_code : firestore.DELETE_FIELD} )
+
+##### VIEW EXAM FUNCTION #####
+@bot.message_handler( regexp = "Exam Timetable" )
+def view_exams( message ):
+    userid = str( message.chat.id )
+    doc_ref = db.collection( "users" ).document( userid ).collection( "exam" ).document( "timings" )
+    doc = doc_ref.get().to_dict()
+    output = ""
+    for exam in doc:
+        output += f'{exam} Finals\nDate: { doc[exam][0] }\nDuration: {doc[exam][1]} minutes\n\n'
+    if output == "":
+        button1 = telebot.types.KeyboardButton( "Add module" )
+        button2 = telebot.types.KeyboardButton( "Return to Main" )
+        markup = telebot.types.ReplyKeyboardMarkup( resize_keyboard = True, one_time_keyboard = True )
+        markup.add( button1 ).add( button2 )
+        bot.send_message( int(userid), "You have no modules, please proceed to add modules.", reply_markup = markup )
+    else:
+        button = telebot.types.KeyboardButton( "Return to Main" )
+        markup = telebot.types.ReplyKeyboardMarkup( resize_keyboard = True, one_time_keyboard = True )
+        markup.add( button )
+        bot.send_message( int(userid), f"Here are your exam dates for AY {ay.replace( '-', '/' )} Semester {semester+1}:\n\n{output}", reply_markup = markup )
 
 ##### VIEW MODULES FUNCTION #####
 @bot.message_handler( regexp = "View Modules" )
@@ -700,6 +731,7 @@ def add_module( mod_code ):
         db.collection( "users" ).document( userid ).collection( "all_mods" ).document( "all_mods" ).set( {formtext: title }, merge = True ) # Add module code and title to all_mods document
         for i in mod_lesson_types: # In the new module document, create a new collection and in this collection, create documents for each lesson type to store timings and venues in the future
             db.collection( "users" ).document( userid ).collection( "mods" ).document( formtext ).collection( "lessons" ).document( f'{formtext} {i}' ).set( {"config" : False} )
+        add_exam( userid, formtext ) # Using helper function to add exam timing to DB
         bot.send_message( int(userid), "Ok, I have added " + formtext + ": " + title + ", to your modules." ) # Reply message
     button1 = telebot.types.KeyboardButton( "View modules" )
     button2 = telebot.types.KeyboardButton( "Add module" )
@@ -747,6 +779,7 @@ def delete_module( mod_code ):
     title = db.collection( "users" ).document( userid ).collection( "all_mods" ).document( "all_mods" ).get().to_dict()[ mod_to_delete ] # Title of module
     db.collection( "users" ).document( userid ).collection( "mods" ).document( mod_to_delete ).delete()
     db.collection( "users" ).document( userid ).collection( "all_mods" ).document( "all_mods" ).update( { mod_to_delete : firestore.DELETE_FIELD } )
+    remove_exam( userid, mod_to_delete )
     button1 = telebot.types.KeyboardButton( "View modules" )
     button2 = telebot.types.KeyboardButton( "Add module" )
     button3 = telebot.types.KeyboardButton( "Delete module" )

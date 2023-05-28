@@ -50,6 +50,36 @@ modcodes = []
 for i in mods_basic:
     modcodes.append( i["moduleCode"]) # List of all module codes
 
-@bot.message_handler( "Exam timetable" )
-def exam_timetable( message ):
-    
+##### HELPER FUNCTION TO BE USED IN ADD MODULE #####
+def add_exam( userid, mod_code ):
+    mod_details_req = requests.get( mod_details_end.replace( replace_ay, ay ).replace( replace_mod, mod_code ) )
+    mod_details = mod_details_req.json()
+    if 'examDate' in mod_details:
+        db.collection( "users" ).document( userid ).collection( "exam" ).document( "timings" ).set( { mod_code : [ mod_details['examDate'], mod_details['examDuration'] ] } )
+
+##### HELPER FUNCTION TO BE USED IN DEL MODULE #####
+def remove_exam( userid, mod_code ):
+    db.collection( "users" ).document( userid ).collection( "exam" ).document( "timings" ).update( { mod_code : firestore.DELETE_FIELD} )
+
+##### VIEW EXAM FUNCTION #####
+@bot.message_handler( regexp = "Exam Timetable" )
+def view_exams( message ):
+    userid = str( message.chat.id )
+    doc_ref = db.collections( "users" ).document( userid ).collection( "exam" ).document( "timings" )
+    doc = doc_ref.get().to_dict()
+    output = ""
+    for exam in doc:
+        output += f'{exam} Finals\n\nDate: { doc[exam][0] }\nDuration: {doc[exam][1]}\n\n'
+    if output == "":
+        button1 = telebot.types.KeyboardButton( "Add module" )
+        button2 = telebot.types.KeyboardButton( "Return to Main" )
+        markup = telebot.types.ReplyKeyboardMarkup( resize_keyboard = True, one_time_keyboard = True )
+        markup.add( button1 ).add( button2 )
+        bot.send_message( int(userid), "You have no modules, please proceed to add modules.", reply_markup = markup )
+    else:
+        button = telebot.types.KeyboardButton( "Return to Main" )
+        markup = telebot.types.ReplyKeyboardMarkup( resize_keyboard = True, one_time_keyboard = True )
+        markup.add( button )
+        bot.send_message( int(userid), f"Here are your exam dates for AY {ay.replace( '-', '/' )} Semester {semester+1}:\n\n{output}", reply_markup = markup )
+
+bot.infinity_polling()
