@@ -1,0 +1,5 @@
+# Ignore .env files which contains NUSMOD API endpoints and Telebot token
+# Ignore .json file which contains key to Firebase databse
+# Both .env and .json file are in the "config" folder
+
+config
