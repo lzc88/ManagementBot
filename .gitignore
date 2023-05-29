@@ -2,6 +2,4 @@
 # 1. .env file which contains Telebot token and NUSMODS API endpoints
 # 2. .json file which contains key for access to Firestore database
 
-.env
-
-.json
+config
