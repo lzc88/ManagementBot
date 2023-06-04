@@ -48,14 +48,15 @@ if semester == 0:
 else:
     sem_start = datetime( 2023, 1, 9 )
     sem_end = datetime( 2023, 4, 14 )
+
 days = ["Monday","Tuesday","Wednesday","Thursday","Friday","Saturday","Sunday"]
 
 ########## GENERATE A LIST OF MODULE CODES ##########
-""" mods_basic_req = requests.get( mods_basic_end.replace( replace_ay, ay ) )
+mods_basic_req = requests.get( mods_basic_end.replace( replace_ay, ay ) )
 mods_basic = mods_basic_req.json() # List of dictionaries, each dictionary represents a module
 modcodes = []
 for i in mods_basic:
-    modcodes.append( i["moduleCode"]) # List of all module codes """
+    modcodes.append( i["moduleCode"]) # List of all module codes
 
 ####################################################################################################
 
@@ -823,7 +824,6 @@ def process_ics_file(file_url):
         return None
 
 
-
 # END OF FUNCTION (1) Assignment Deadlines
 
 ###################################################################################################################################
@@ -1071,6 +1071,15 @@ def process_delete_event(message, event_docs):
 
 # FUNCTION (3) School Timetable
 
+def choice3( message, userid ):
+    option = message.text
+    if option == "Add module":
+        go_to_addmodule( message, userid )
+    elif option == "School Timetable":
+        school_timetable( message, userid )
+    elif option == "Return to Main":
+        main( message )
+
 def school_timetable( message, userid ):
     doc_ref = db.collection( "users" ).document( userid ).collection( "all_mods" ).document( "all_mods" ) # Reference to check if User's mods are configured / If User has any modules
     doc = doc_ref.get().to_dict() # Dictionary containing all of User's mods, can be empty
@@ -1087,9 +1096,9 @@ def school_timetable( message, userid ):
                 if not config_status:
                     unconfigured += f'{doc2.id} \n\n'
                     unconfigured_list.append( doc2.id )
-        if unconfigured == "":
+        if unconfigured == "": # If all User's lessons are configured, proceed to view timetable
              view_timetable( message )
-        else:
+        else: # If User has unconfigured lessons, can choose to configure, ignore and proceed to view, or return to main
             button1 = telebot.types.KeyboardButton( "Configure lessons" )
             button2 = telebot.types.KeyboardButton( "Ignore and proceed to view school timetable" )
             button3 = telebot.types.KeyboardButton( "Return to Main" )
@@ -1102,7 +1111,8 @@ def school_timetable( message, userid ):
         button2 = telebot.types.KeyboardButton( "Return to Main" )
         markup = telebot.types.ReplyKeyboardMarkup( resize_keyboard = True, one_time_keyboard = True )
         markup.add(button1).add(button2)
-        bot.send_message( int(userid), "You currently do not have any modules, please procede to Add modules or Return to Main.",reply_markup = markup )
+        bot.send_message( int(userid), "You have no modules, please proceed to add modules.",reply_markup = markup )
+        bot.register_next_step_handler( message, choice3, userid ) # Next step based on User's choice
 
 def prompt_config_lesson( message, unconfigured_list ):
     if message.text == "Configure lessons":
@@ -1114,18 +1124,18 @@ def prompt_config_lesson( message, unconfigured_list ):
         bot.register_next_step_handler( message, config_lesson1, unconfigured_list )
     elif message.text == "Ignore and proceed to view school timetable":
         view_timetable( message )
-    else:
-        bot.send_message( message.chat.id, "That is an invalid input." )
-        school_timetable( message )
+    elif message.text == "Return to Main":
+        main( message )
 
 def config_lesson1( message, unconfigured_list ):
+    userid = str( message.chat.id )
     lesson = message.text
     if lesson in unconfigured_list:
-        bot.send_message( message.chat.id, f'What is your lesson slot number for {lesson}? \n\n For lesson slot numbers for odd/even lessons, please key in the full lesson slot number. For example: \n\n D23, E9 \n\n For all other lessons, please key in the numbers only. For example: \n\n LEC-1, SEC-09 will be 1 and 9 respectively.' )
+        bot.send_message( message.chat.id, f'What is your lesson slot number for {lesson}? \n\nFor lectures/tutorials with only one slot, please key in 1. Otherwise, please key in your allocated slot number. \n\nFor odd/even lessons, please key in the full lesson slot number as seen on NUSMods. For example: \nE23, D09, E9 etc. \n\nFor all other lessons, please key in the numbers only. For example: \nSEC-09 will be 09.' )
         bot.register_next_step_handler( message, config_lesson2, lesson )
     else:
-        bot.send_message( message.chat.id, "That is an invalid lesson.")
-        school_timetable( message )
+        bot.send_message( message.chat.id, "That is an invalid lesson. Please try again.")
+        school_timetable( message, userid )
 
 def config_lesson2( message, lesson ):
     userid = str(message.chat.id)
@@ -1133,22 +1143,23 @@ def config_lesson2( message, lesson ):
     mod_code, lesson_type = lesson_list[0], lesson_list[1]
     lesson_no = message.text.upper()
     all_lessons_req = requests.get( mod_details_end.replace( replace_ay, ay ).replace( replace_mod, mod_code ) ).json()
-    all_lessons = all_lessons_req["semesterData"][semester]['timetable']
-    for item in all_lessons:
-        if item['classNo'] == lesson_no and item['lessonType'] == lesson_type:
+    all_lessons = all_lessons_req["semesterData"][semester]['timetable'] # Retrieve all lesson slots of a module for the current semester
+    for item in all_lessons: # For each lesson slot
+        if item['classNo'] == lesson_no and item['lessonType'] == lesson_type: # To filter the lesson slot that corresponds to User's input
             db.collection( "users" ).document( userid ).collection( "mods" ).document( mod_code ).collection( "lessons" ).document( lesson ).update( {"timings": firestore.ArrayUnion([item])})
             db.collection( "users" ).document( userid ).collection( "mods" ).document( mod_code ).collection( "lessons" ).document( lesson ).update( {"config" : True} )
     check_ref = db.collection( "users" ).document( userid ).collection( "mods" ).document( mod_code ).collection( "lessons" ).document( lesson ).get().to_dict()
     if check_ref["config"]:
         bot.send_message( int(userid), f'Your timing for {lesson} has been configured!')
         regenerate( message )
-        school_timetable( message )
+        school_timetable( message, userid )
     else:
-        button1 = telebot.types.KeyboardButton("School Timetable")
+        button1 = telebot.types.KeyboardButton( "School Timetable" )
         button2 = telebot.types.KeyboardButton( "Return to Main" )
         markup = telebot.types.ReplyKeyboardMarkup( resize_keyboard = True, one_time_keyboard = True )
         markup.add( button1 ).add( button2 )
         bot.send_message( int(userid), "Your lesson slot could not be found. Please return to School Timetable to try again. If error persists, kindly feedback this issue to us via the Main menu, thank you!", reply_markup = markup )
+        bot.register_next_step_handler( message, choice3, userid )
 
 ########## DATE FOR TESTING ##########
 test_date = datetime( 2023, 2, 6 )
@@ -1201,12 +1212,14 @@ def view_timetable( message ):
             text += "\n"
         if text == "":
             bot.send_message( int(userid) , f"You have no more lessons for week {week_no}. Have a good rest!" )
+            main( message )
         else:
             button1 = telebot.types.KeyboardButton( "Return to Main" )
             markup = telebot.types.ReplyKeyboardMarkup( resize_keyboard = True, one_time_keyboard = True )
             markup.add( button1 )
             bot.send_message( int(userid), f"Here is your time table for week {week_no}!" )
             bot.send_message( int(userid), text, reply_markup = markup )
+            bot.register_next_step_handler( message, choice3, userid )
 
 def regenerate( message ):
     userid = str( message.chat.id )
@@ -1218,7 +1231,16 @@ def regenerate( message ):
 
 # FUNCTION (4) Exam Timetable
 
-def view_exams( userid ):
+def choice4( message, userid ):
+    option = message.text
+    if option == "Add module":
+        go_to_addmodule( message, userid )
+    elif option == "Delete module":
+        go_delete_module( message, userid )
+    elif option == "Return to Main":
+        main( message )
+
+def view_exams( message, userid ):
     doc_ref = db.collection( "users" ).document( userid ).collection( "exam" ).document( "timings" )
     doc = doc_ref.get().to_dict() # Returns a dictionary where the keys are module codes and items are the respective exam timings. Can be empty
     output = ""
@@ -1232,11 +1254,15 @@ def view_exams( userid ):
         markup = telebot.types.ReplyKeyboardMarkup( resize_keyboard = True, one_time_keyboard = True )
         markup.add( button1 ).add( button2 )
         bot.send_message( int(userid), "You have no modules, please proceed to add modules.", reply_markup = markup )
+        bot.register_next_step_handler( message, choice4, userid ) # Next step based on User's choice
     else:
-        button = telebot.types.KeyboardButton( "Return to Main" )
+        button1 = telebot.types.KeyboardButton( "Add module" )
+        button2 = telebot.types.KeyboardButton( "Delete module" )
+        button3 = telebot.types.KeyboardButton( "Return to Main" )
         markup = telebot.types.ReplyKeyboardMarkup( resize_keyboard = True, one_time_keyboard = True )
-        markup.add( button )
+        markup.add( button1 ).add( button2 ).add( button3 )
         bot.send_message( int(userid), f"Here are your exam dates for AY {ay.replace( '-', '/' )} Semester {semester+1}:\n\n{output}", reply_markup = markup )
+        bot.register_next_step_handler( message, choice4, userid )
 
 
 # END OF FUNCTION (4) Exam Timetable
@@ -1257,13 +1283,15 @@ def remove_exam( userid, mod_code ):
     db.collection( "users" ).document( userid ).collection( "exam" ).document( "timings" ).update( { mod_code : firestore.DELETE_FIELD} )
 
 ########## FUNCTION TO DIRECT USER BASED ON OPTION SELECTED IN VIEW MODULES ##########
-def view_modules_choice( text, userid ):
+def choice5( text, userid ):
     option = text.text
     if option == "Add module":
         go_to_addmodule( text, userid )
     elif option == "Delete module":
         go_delete_module( text, userid )
-    else:
+    elif option == "View modules":
+        view_modules( text, userid )
+    elif option == "Return to Main":
         main( text )
 
 ########## VIEW MODULES FUNCTION ##########
@@ -1281,13 +1309,14 @@ def view_modules( text, userid ):
         markup = telebot.types.ReplyKeyboardMarkup( resize_keyboard = True, one_time_keyboard = True ) # Reply message with options to procede
         markup.add( button1 ).add( button2 ).add( button3 )
         bot.send_message( int(userid), "What would you like to do?" , reply_markup = markup )
-        bot.register_next_step_handler( text, view_modules_choice, userid )
+        bot.register_next_step_handler( text, choice5, userid ) # Next step based on User's choice
     else: # If the User has no modules to view
         button1 = telebot.types.KeyboardButton( "Add module" )
         button2 = telebot.types.KeyboardButton( "Return to Main" )
         markup = telebot.types.ReplyKeyboardMarkup( resize_keyboard = True, one_time_keyboard = True )
         markup.add(button1).add(button2)
-        bot.send_message( int(userid), "You have no modules, please procede to add modules.", reply_markup = markup ) # Reply message with options to procede
+        bot.send_message( int(userid), "You have no modules, please proceed to add modules.", reply_markup = markup ) # Reply message with options to procede
+        bot.register_next_step_handler( text, choice5, userid ) # Next step based on User's choice
         
 ########## ADD MODULE FUNCTION ##########
 def go_to_addmodule( text, userid ):
@@ -1324,9 +1353,10 @@ def add_module( text, userid ):
         markup = telebot.types.ReplyKeyboardMarkup( resize_keyboard = True, one_time_keyboard = True )
         markup.add( button1 ).add( button2 ).add( button3 ).add( button4 )
         bot.send_message( int(userid), "What would you like to do?" , reply_markup = markup ) # Reply message with options to procede
+        bot.register_next_step_handler( text, choice5, userid ) # Next step based on User's choice
     else: # Input module is an invalid module code
         bot.send_message( int(userid), "That is an invalid module code, please try again." )
-        go_to_addmodule( text ) # Prompt User to add module again
+        view_modules( text, userid ) # Prompt User to add module again
 
 ########## DELETE MODULE FUNCTION ##########
 def go_delete_module( text, userid ):
@@ -1340,28 +1370,34 @@ def go_delete_module( text, userid ):
         button = telebot.types.KeyboardButton( "Return to Main" )
         markup.add( button )
         bot.send_message( int(userid), "What would you like to do?", reply_markup = markup ) # Reply with options on what to delete, or Return to Main
-        bot.register_next_step_handler( text, delete_module, userid )
+        bot.register_next_step_handler( text, delete_module, userid ) # Next step based on User's choice
     else: # User has no modules to delete
         button1 = telebot.types.KeyboardButton( "Add module" )
         button2 = telebot.types.KeyboardButton( "Return to Main" )
         markup = telebot.types.ReplyKeyboardMarkup( resize_keyboard = True, one_time_keyboard = True )
         markup.add( button1 ).add( button2 )
         bot.send_message( int(userid), "You have no modules, please procede to add modules.", reply_markup = markup ) # Reply with options to Add module or Return to Main
+        bot.register_next_step_handler( text, choice5, userid ) # Next step based on User's choice
 
 def delete_module( text, userid ):
-    mod_to_delete = text.text[ 7: ] # Module code of module to delete, in  proper format
-    title = db.collection( "users" ).document( userid ).collection( "all_mods" ).document( "all_mods" ).get().to_dict()[ mod_to_delete ] # Title of module
-    db.collection( "users" ).document( userid ).collection( "mods" ).document( mod_to_delete ).delete()
-    db.collection( "users" ).document( userid ).collection( "all_mods" ).document( "all_mods" ).update( { mod_to_delete : firestore.DELETE_FIELD } )
-    remove_exam( userid, mod_to_delete )
-    button1 = telebot.types.KeyboardButton( "View modules" )
-    button2 = telebot.types.KeyboardButton( "Add module" )
-    button3 = telebot.types.KeyboardButton( "Delete module" )
-    button4 = telebot.types.KeyboardButton( "Return to Main" )
-    markup = telebot.types.ReplyKeyboardMarkup( resize_keyboard = True, one_time_keyboard = True )
-    markup.add( button1 ).add( button2 ).add( button3 ).add( button4 )
-    bot.send_message( int(userid), mod_to_delete + ": " + title + ", has been deleted from your modules." ) # Reply message
-    bot.send_message( int(userid), "Please select the relevant options.", reply_markup = markup ) # Reply message with options to procede
+    option = text.text
+    if option == "Return to Main":
+        main( text )
+    else:
+        mod_to_delete = text.text[ 7: ] # Module code of module to delete, in  proper format
+        title = db.collection( "users" ).document( userid ).collection( "all_mods" ).document( "all_mods" ).get().to_dict()[ mod_to_delete ] # Title of module
+        db.collection( "users" ).document( userid ).collection( "mods" ).document( mod_to_delete ).delete()
+        db.collection( "users" ).document( userid ).collection( "all_mods" ).document( "all_mods" ).update( { mod_to_delete : firestore.DELETE_FIELD } )
+        remove_exam( userid, mod_to_delete )
+        button1 = telebot.types.KeyboardButton( "View modules" )
+        button2 = telebot.types.KeyboardButton( "Add module" )
+        button3 = telebot.types.KeyboardButton( "Delete module" )
+        button4 = telebot.types.KeyboardButton( "Return to Main" )
+        markup = telebot.types.ReplyKeyboardMarkup( resize_keyboard = True, one_time_keyboard = True )
+        markup.add( button1 ).add( button2 ).add( button3 ).add( button4 )
+        bot.send_message( int(userid), mod_to_delete + ": " + title + ", has been deleted from your modules." ) # Reply message
+        bot.send_message( int(userid), "What would you like to do?", reply_markup = markup ) # Reply message with options to procede
+        bot.register_next_step_handler( text, choice5, userid ) # Next step based on User's choice
 
 
 # END OF FUNCTIONS (5) View Modules, Add module and Delete module
