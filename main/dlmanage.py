@@ -152,6 +152,18 @@ def get_dl(user_id):
                 'status': assignment['status']
             })
 
+    # Retrieve manually typed deadline data from Firestore
+    manually_typed_dl_docs = user_doc.collection("dl_data").stream()
+
+    for i, doc in enumerate(manually_typed_dl_docs, start=len(dl_data)+1):
+        dl = doc.to_dict()
+        dl_data.append({
+            'id': i,
+            'title': dl['title'],
+            'due_date': dl['due_date'].strftime("%A, %d/%m/%y %H%Mhrs"),
+            'status': dl['status']
+        })
+
     return dl_data
 
 dl_user_data = {}
@@ -224,9 +236,12 @@ def assignments_deadline(message):
 
         complete_button = telebot.types.KeyboardButton("Mark Assignments as complete")
         uncomplete_button = telebot.types.KeyboardButton("Mark Assignments as not completed")
+        manage_deadlines_button = telebot.types.KeyboardButton("Manage Deadlines Data")
         add_cal_button = telebot.types.KeyboardButton("Manage Calendar Data")
         return_button = telebot.types.KeyboardButton("Return to Main")
-        markup.row(complete_button, uncomplete_button)
+        markup.row(complete_button)
+        markup.row(uncomplete_button)
+        markup.row(manage_deadlines_button)
         markup.row(add_cal_button)
         markup.row(return_button)
 
@@ -236,32 +251,227 @@ def assignments_deadline(message):
         dl_user_data[user_id] = current_page
 
     else:
-        response = "You do not have any deadlines present, would you like to add them? "
-        response += "Please click on 'Manage Calendar Data' to import in Canvas Calendar data."
+        response = "Your deadlines list is empty. Please add in deadlines to use this function.\n\n"
+        response += "Please click on 'Manage Calendar Data' to import in Canvas Calendar data. You may also click on 'Manage Deadlines Data' to manually add in your own deadlines."
         markup = telebot.types.ReplyKeyboardMarkup(resize_keyboard=True, one_time_keyboard=True)
         complete_button = telebot.types.KeyboardButton("Mark Assignments as complete")
         uncomplete_button = telebot.types.KeyboardButton("Mark Assignments as not completed")
+        manage_deadlines_button = telebot.types.KeyboardButton("Manage Deadlines Data")
         add_cal_button = telebot.types.KeyboardButton("Manage Calendar Data")
         return_button = telebot.types.KeyboardButton("Return to Main")
-        markup.row(complete_button, uncomplete_button)
+        markup.row(complete_button)
+        markup.row(uncomplete_button)
+        markup.row(manage_deadlines_button)
         markup.row(add_cal_button)
         markup.row(return_button)
         bot.send_message(message.chat.id, response, reply_markup=markup)
         
-
+# To view next page of deadlines (if len > 8)
 @bot.message_handler(func=lambda message: message.text == "Next")
 def handle_next_button(message):
     user_id = str(message.from_user.id)
     current_page = dl_user_data.get(user_id, 1)
     dl_user_data[user_id] = current_page + 1
     assignments_deadline(message)
-        
+
+# To view previous page of deadlines (if len > 8)        
 @bot.message_handler(func=lambda message: message.text == "Previous")
 def handle_previous_button(message):
     user_id = str(message.from_user.id)
     current_page = dl_user_data.get(user_id, 1)
     dl_user_data[user_id] = current_page - 1
     assignments_deadline(message)       
+        
+@bot.message_handler(regexp="Manage Deadlines Data")
+def manage_deadlines_data(message):
+    # Display the options for managing deadlines
+    response = "Please select an option to manage deadlines:\n"
+    response += "1) Add Deadline\n"
+    response += "2) Delete Deadline\n"
+    response += "3) Return to Assignment deadlines"
+
+    markup = telebot.types.ReplyKeyboardMarkup(resize_keyboard=True, one_time_keyboard=True)
+    add_deadline_button = telebot.types.KeyboardButton("Add Deadline")
+    delete_deadline_button = telebot.types.KeyboardButton("Delete Deadline")
+    return_button = telebot.types.KeyboardButton("Return to Assignment deadlines")
+    markup.row(add_deadline_button)
+    markup.row(delete_deadline_button)
+    markup.row(return_button)
+
+    bot.send_message(message.chat.id, response, reply_markup=markup)
+
+
+@bot.message_handler(func=lambda message: message.text.lower() == "return to assignment deadlines")
+def handle_back_adl(message):
+    assignments_deadline(message)     
+
+@bot.message_handler(regexp="Add Deadline")        
+def add_dl(message):
+    markup = telebot.types.ReplyKeyboardRemove()
+    bot.send_message(message.chat.id, "Please enter the deadline name.", reply_markup=markup)
+    bot.register_next_step_handler(message, add_dl_name)
+
+def add_dl_name(message):
+    dl_name = message.text
+    response = "Please enter the deadline date and time in 24H format (e.g. DD/MM HHMM)\n\n"
+    bot.send_message(message.chat.id, response)
+    bot.register_next_step_handler(message, add_dl_datetime, dl_name)
+
+def add_dl_datetime(message, dl_name):
+    dl_datetime = message.text.replace(":", "")  # Remove the colon from the time format
+
+    try:
+        # Try parsing as "DD/MM/YYYY HHMM" format
+        dl_time = datetime.strptime(dl_datetime, "%d/%m/%Y %H%M")
+        current_time = datetime.now()
+
+        if dl_time < current_time:
+            # The entered time is in the past
+            bot.send_message(message.chat.id, "You need to enter a future date and time.")
+            # Prompt the user again to enter a valid time
+            bot.register_next_step_handler(message, lambda msg: add_dl_datetime(msg, dl_name))
+        else:
+            # The entered time is valid
+            save_dl_details(message, dl_name, dl_time)
+
+    except ValueError:
+        try:
+            # Try parsing as "DD/MM HHMM" format
+            dl_date, dl_time = dl_datetime.split(" ")
+            current_year = datetime.now().year
+
+            dl_time_full = f"{dl_date}/{current_year} {dl_time}"
+            dl_time_full = datetime.strptime(dl_time_full, "%d/%m/%Y %H%M")
+
+            if dl_time_full < datetime.now():
+                # The entered time is in the past
+                bot.send_message(message.chat.id, "You need to enter a future date and time.")
+                # Prompt the user again to enter a valid time
+                bot.register_next_step_handler(message, lambda msg: add_dl_datetime(msg, dl_name))
+            else:
+                # The entered time is valid
+                save_dl_details(message, dl_name, dl_time_full)
+
+        except ValueError:
+            # The entered time format is invalid
+            response = "Invalid date and time format. Please enter the date and time in 24H format.\n"
+            response += "e.g., for 5 May 11pm, please type 05/05 2300\n"
+            bot.send_message(message.chat.id, response)
+            # Prompt the user again to enter a valid time
+            bot.register_next_step_handler(message, lambda msg: add_dl_datetime(msg, dl_name))   
+        
+def save_dl_details(message, dl_name, dl_datetime):
+    user_id = message.from_user.id
+    dl_ref = db.collection('users').document(str(user_id)).collection('dl_data').document()
+    dl_ref.set({
+        'title': dl_name,
+        'due_date': dl_datetime,
+        'status': "NOT COMPLETED"
+    })
+
+    bot.send_message(user_id, "Deadline added to your Assignment Deadlines!")
+    assignments_deadline(message)
+        
+#To delete deadlines        
+@bot.message_handler(regexp="Delete Deadline")
+def delete_deadline(message):
+    user_id = str(message.from_user.id)
+    deadlines = get_dl(user_id)
+
+    if deadlines:
+        response = "Please select the deadline you want to delete:\n"
+        sorted_deadlines = sorted(deadlines, key=lambda x: datetime.strptime(x['due_date'], "%A, %d/%m/%y %H%Mhrs"))
+        for i, deadline in enumerate(sorted_deadlines, start=1):
+            response += f"{i}) {deadline['title']} - {deadline['due_date']}\n"
+        
+        keyboard = ReplyKeyboardMarkup(resize_keyboard=True, one_time_keyboard=True)
+        for deadline in sorted_deadlines:
+            keyboard.add(KeyboardButton(deadline['title']))
+        keyboard.add(KeyboardButton('back'))
+        response += "\n\nIf you wish to delete All deadlines (INCLUDES CALENDAR DATA), please manually type 'delete_all_deadlines' "
+        bot.send_message(message.chat.id, response, reply_markup=keyboard)
+        bot.register_next_step_handler(message, process_delete)
+    else:
+        response = "You have no deadlines to delete."
+        bot.reply_to(message, response)
+        assignments_deadline(message)
+        
+   
+
+
+def delete_all_deadlines(message):
+    user_id = str(message.from_user.id)
+
+    # Delete all deadlines from dl_data
+    user_doc = db.collection("users").document(user_id)
+    dl_data_collection = user_doc.collection("dl_data")
+
+    # Get all documents in dl_data collection
+    dl_data_docs = dl_data_collection.get()
+
+    for doc in dl_data_docs:
+        doc.reference.delete()
+
+    # Delete ics_data document
+    ics_data_doc = user_doc.collection("CC_data").document("ics_data")
+    ics_data_doc.delete()
+
+    response = "All deadlines have been deleted."
+    bot.reply_to(message, response)
+
+    # Reset the current page to 1
+    dl_user_data[user_id] = 1
+
+    assignments_deadline(message)
+
+def process_delete(message):
+    user_id = str(message.from_user.id)
+    text = message.text
+
+    if text == 'back':
+        assignments_deadline(message)
+    if text.lower() == 'delete_all_deadlines':
+        delete_all_deadlines(message)
+    else:
+        deadline_title = text
+        found = False
+
+        user_doc = db.collection("users").document(user_id)
+        dl_data_col = user_doc.collection("dl_data")
+
+        # Search for the deadline with the given title in dl_data collection
+        dl_data_query = dl_data_col.where("title", "==", deadline_title).limit(1).stream()
+
+        for doc in dl_data_query:
+            doc.reference.delete()
+            response = f"The deadline '{doc.get('title')}' has been deleted."
+            found = True
+            break
+
+        if not found:
+            cc_data_doc = user_doc.collection("CC_data").document("ics_data")
+            cc_data_snapshot = cc_data_doc.get()
+
+            if cc_data_snapshot.exists:
+                cc_data = cc_data_snapshot.to_dict().get("data", [])
+
+                # Search for the deadline with the given title in cc_data list
+                for deadline in cc_data:
+                    if deadline.get('title') == deadline_title:
+                        cc_data.remove(deadline)
+                        response = f"The deadline '{deadline['title']}' has been deleted."
+                        found = True
+                        break
+
+                # Update the deadline data in Firestore
+                cc_data_doc.set({"data": cc_data}, merge=True)
+
+        if not found:
+            response = f"Failed to find the deadline with title '{deadline_title}'. Please try again."
+
+        bot.reply_to(message, response)
+        assignments_deadline(message)
+   
         
 # To allow users to mark as completion
 @bot.message_handler(regexp="Mark Assignments as complete")
@@ -270,32 +480,30 @@ def mark_completed(message):
     deadlines = get_dl(user_id)
 
     if deadlines:
-        response = "Please select the assignment you completed:\n"
-        sorted_deadlines = sorted(deadlines, key=lambda x: datetime.strptime(x['due_date'], "%A, %d/%m/%y %H%Mhrs"))
-        pending_assignments = []
-        for i, deadline in enumerate(sorted_deadlines, start=1):
+        response = "Please select the assignment to mark as COMPLETED:\n"
+        completed_assignments = []
+        index = 1
+        for deadline in deadlines:
             if deadline['status'] != "COMPLETED":
-                response += f"{i}) {deadline['title']}\n"
-                pending_assignments.append(deadline['title'])  # Include assignment title
+                response += f"{index}) {deadline['title']}\n"
+                completed_assignments.append(deadline['title'])
+                index += 1
 
-        if not pending_assignments:
+        if not completed_assignments:
             response = "You do not have any assignments marked as NOT COMPLETED."
+            bot.send_message(message.chat.id, response)
+            assignments_deadline(message)
+            return
         else:
             response += "To return, please click on 'back'"
             keyboard = ReplyKeyboardMarkup(resize_keyboard=True, one_time_keyboard=True)
-            for assignment_title in pending_assignments:
-                keyboard.add(KeyboardButton(assignment_title))
+            for assignment_title in completed_assignments:
+                keyboard.add(KeyboardButton(f"{assignment_title}"))
             keyboard.add(KeyboardButton('back'))
             bot.send_message(message.chat.id, response, reply_markup=keyboard)
-            bot.register_next_step_handler(message, process_completed, pending_assignments)
-
-        # Check if all deadlines are completed
-        if all(deadline['status'] == "COMPLETED" for deadline in deadlines):
-            response = "Yay! You have completed all deadlines. Keep up the good work!"
-            bot.send_message(message.chat.id, response)
-            assignments_deadline(message)
+            bot.register_next_step_handler(message, process_completed, completed_assignments)
     else:
-        response = "Yay! You have no pending deadlines. Keep up the good work!"
+        response = "Yay! You have completed all your assignments for now. Keep up the good work!"
         bot.reply_to(message, response)
 
 
@@ -307,30 +515,38 @@ def process_completed(message, pending_assignments):
         assignments_deadline(message)
     elif text in pending_assignments:
         user_doc = db.collection("users").document(user_id)
-        ics_data_doc = user_doc.collection("CC_data").document("ics_data")
+        cc_data_doc = user_doc.collection("CC_data").document("ics_data")
+        dl_data_docs = user_doc.collection("dl_data").stream()
 
-        # Retrieve the .ics data from Firestore
-        ics_data_snapshot = ics_data_doc.get()
+        cc_data_snapshot = cc_data_doc.get()
+        cc_data = cc_data_snapshot.to_dict().get("data", []) if cc_data_snapshot.exists else []
 
-        if ics_data_snapshot.exists:
-            ics_data = ics_data_snapshot.to_dict().get("data", [])
+        dl_data = []
 
-            # Search for the assignment with the given title in ics_data list
-            for assignment in ics_data:
-                if assignment.get('title') == text:
-                    if assignment['status'] != "COMPLETED":
-                        assignment['status'] = "COMPLETED"
-                        response = f"Congratulations on completing! I have marked '{assignment['title']}' as COMPLETED."
+        # Retrieve dl_data from Firestore
+        for doc in dl_data_docs:
+            dl = doc.to_dict()
+            dl_data.append(dl)
+
+        # Search for the assignment with the given title in cc_data and dl_data
+        for assignment in cc_data + dl_data:
+            if assignment.get('title') == text:
+                if assignment['status'] != "COMPLETED":
+                    assignment['status'] = "COMPLETED"
+
+                    if assignment in cc_data:
+                        cc_data_doc.set({"data": cc_data}, merge=True)
                     else:
-                        response = f"The assignment '{assignment['title']}' is already marked as COMPLETED."
-                    break
-            else:
-                response = f"Failed to find the assignment with title '{text}'. Please try again."
-        else:
-            response = "Failed to retrieve assignment data. Please try again."
+                        dl_doc = user_doc.collection("dl_data").document(doc.id)
+                        dl_doc.set(assignment, merge=True)
 
-        # Update the assignment data in Firestore
-        ics_data_doc.set({"data": ics_data}, merge=True)
+                    response = f"Congratulations on completing! I have marked '{assignment['title']}' as COMPLETED."
+                else:
+                    response = f"The assignment '{assignment['title']}' is already marked as COMPLETED."
+                break
+        else:
+            response = f"Failed to find the assignment with title '{text}'. Please try again."
+
         bot.reply_to(message, response)
         assignments_deadline(message)
     else:
@@ -383,28 +599,42 @@ def process_uncompleted(message, completed_assignments):
         assignment_title = text
         if assignment_title in completed_assignments:
             user_doc = db.collection("users").document(user_id)
-            ics_data_doc = user_doc.collection("CC_data").document("ics_data")
+            cc_data_doc = user_doc.collection("CC_data").document("ics_data")
+            dl_data_docs = user_doc.collection("dl_data").stream()
 
-            # Retrieve the .ics data from Firestore
-            ics_data_snapshot = ics_data_doc.get()
+            cc_data_snapshot = cc_data_doc.get()
+            cc_data = cc_data_snapshot.to_dict().get("data", []) if cc_data_snapshot.exists else []
 
-            if ics_data_snapshot.exists:
-                ics_data = ics_data_snapshot.to_dict().get("data", [])
+            dl_data = []
 
-                # Search for the assignment with the given title in ics_data list
-                for assignment in ics_data:
-                    if assignment.get('title', '') == assignment_title:
-                        if assignment['status'] != "NOT COMPLETED":
-                            assignment['status'] = "NOT COMPLETED"
-                            response = f"I have marked '{assignment['title']}' as NOT COMPLETED."
-                            break
-                else:
-                    response = f"Failed to find the assignment with title '{assignment_title}'. Please try again."
-            else:
-                response = "Failed to retrieve assignment data. Please try again."
+            # Retrieve dl_data from Firestore
+            for doc in dl_data_docs:
+                dl = doc.to_dict()
+                dl_data.append(dl)
 
-            # Update the assignment data in Firestore
-            ics_data_doc.set({"data": ics_data}, merge=True)
+            assignment_found = False
+
+            # Search for the assignment with the given title in cc_data and dl_data
+            for assignment in cc_data + dl_data:
+                if assignment.get('title', '') == assignment_title:
+                    if assignment['status'] != "NOT COMPLETED":
+                        assignment['status'] = "NOT COMPLETED"
+
+                        if assignment in cc_data:
+                            cc_data_doc.set({"data": cc_data}, merge=True)
+                        else:
+                            dl_doc = user_doc.collection("dl_data").document(doc.id)
+                            dl_doc.set(assignment, merge=True)
+
+                        response = f"I have marked '{assignment['title']}' as NOT COMPLETED."
+                    else:
+                        response = f"The assignment '{assignment['title']}' is already marked as NOT COMPLETED."
+                    assignment_found = True
+                    break
+
+            if not assignment_found:
+                response = f"Failed to find the assignment with title '{assignment_title}'. Please try again."
+
         else:
             response = "Invalid assignment. Please select an assignment from the given options."
 
@@ -427,22 +657,38 @@ def prompt_calendar_data(message):
         back_button = KeyboardButton("Back")
         markup.add(update_button, delete_button, back_button)
 
-        bot.send_message(user_id, "The .ics data already exists. What would you like to do?", reply_markup=markup)
+        response = "The .ics data already exists. What would you like to do?\n\n"
+        response += "Do note that providing calendar data will not affect deadlines which you have manually entered through 'Manage Deadlines data'. However, "
+        response += "all deadlines imported from previous .ics file will be overridden if you update .ics data.\n\n"
+        response += "To retrieve .ics data from Canvas, please go to canvas -> calendar (on the left side) -> Calendar feed (Bottom Right) \n"
+        response += "The .ics link is in the textbox, select 'Provide .ics link' and copy paste the link for the bot."
+        response += " Else, if you click on 'Click to view Calendar Feed', you will download .ics file, select 'Upload .ics file' and upload the .ics file to the bot.\n\n"
+        response += 'Please ensure that your .ics file is not corrupted, else you will get an error. This issue may rise if there are no valid deadlines on your canvas calendar '
+        response += 'or all assignments in your canvas calendar all are past the due date.'
+        bot.send_message(user_id, response, reply_markup=markup)
         bot.register_next_step_handler(message, handle_existing_ics_data, state)
     else:
         markup = ReplyKeyboardMarkup(row_width=2, one_time_keyboard=True)
         upload_button = KeyboardButton("Upload .ics file")
         link_button = KeyboardButton("Provide .ics link")
         back_button = KeyboardButton("Back")
-        markup.add(upload_button, link_button, back_button)
+        markup.add(upload_button, link_button)
+        markup.add(back_button)
 
-        bot.send_message(user_id, "Please select an option to provide the calendar data:", reply_markup=markup)
+        response = "Please select an option to provide the calendar data.\n\n"
+        response += "Do note that providing calendar data will not affect deadlines which you have manually entered through 'Manage Deadlines data'.\n\n"
+        response += "To retrieve .ics data from Canvas, please go to canvas -> calendar (on the left side) -> Calendar feed (Bottom Right) \n"
+        response += "The .ics link is in the textbox, select 'Provide .ics link' and copy paste the link for the bot."
+        response += " Else, if you click on 'Click to view Calendar Feed', you will download .ics file, select 'Upload .ics file' and upload the .ics file to the bot.\n\n"
+        response += 'Please ensure that your .ics file is not corrupted, else you will get an error. This issue may rise if there are no valid deadlines on your canvas calendar '
+        response += 'or all assignments in your canvas calendar all are past the due date.'
+        bot.send_message(user_id, response, reply_markup=markup)
         bot.register_next_step_handler(message, handle_calendar_data_input, state)
 
 # Handler for processing the selected option when .ics data exists
 def handle_existing_ics_data(message, state):
     user_doc = state["user_doc"]
-    
+
     if message.text == "Back":
         assignments_deadline(message)
 
@@ -450,19 +696,29 @@ def handle_existing_ics_data(message, state):
         markup = ReplyKeyboardMarkup(row_width=2, one_time_keyboard=True)
         upload_button = KeyboardButton("Upload .ics file")
         link_button = KeyboardButton("Provide .ics link")
+        back_button = KeyboardButton("Back")
         markup.add(upload_button, link_button)
+        markup.add(back_button)
 
+        user_id = str(message.from_user.id)
+        dl_user_data[user_id] = 1
+    
         bot.send_message(message.chat.id, "Please select an option to update the calendar data:", reply_markup=markup)
         bot.register_next_step_handler(message, handle_update_calendar_data_input, state)
     elif message.text == "Delete .ics data":
-        user_doc.collection("CC_data").document("ics_data").delete()
+        ics_data_doc = user_doc.collection("CC_data").document("ics_data")
+        ics_data_doc.delete()
+
+        # Reset the current page to 1
+        user_id = str(message.from_user.id)
+        dl_user_data[user_id] = 1
+
         bot.send_message(message.chat.id, "The .ics data has been deleted.")
         assignments_deadline(message)
     else:
         bot.send_message(message.chat.id, "Invalid option. Please try again.")
 
-
-# Handler for processing the selected option to update the .ics data
+# Handler for processing the selected option to update the .ics data when no .ics data is found
 def handle_update_calendar_data_input(message, state):
     user_doc = state["user_doc"]
 
@@ -507,7 +763,6 @@ def handle_ics_file_upload(message, user_doc):
 
             # Store the .ics data under the user's document
             user_doc.collection("CC_data").document("ics_data").set({'data': ics_data})
-
             bot.send_message(message.chat.id, "Calendar data has been successfully stored.")
         else:
             bot.send_message(message.chat.id, "Failed to process the .ics file.")
@@ -753,7 +1008,7 @@ def delete_event(message):
     if pp_data:
         response = "Select the event to delete:\n"
         response += "Please select the corresponding index to your event title\n"
-        response += "e.g If you wish to delete 1) PW Meeting, please select 1\n"
+        response += "e.g If you wish to delete 1) Orbital Meeting, please select 1\n"
         button_array = []
         event_docs = [doc for doc in pp_data]
         for index, doc in enumerate(event_docs, start=1):
