@@ -44,6 +44,8 @@ days = ["Monday","Tuesday","Wednesday","Thursday","Friday","Saturday","Sunday"]
 
 test_date = datetime( 2023, 2, 3 )
 
+mod_details = requests.get( mod_details_end.replace( replace_ay, ay ).replace( replace_mod, "GL1101E" ) ).json()
+
 mods_basic_req = requests.get( mods_basic_end.replace( replace_ay, ay ) )
 mods_basic = mods_basic_req.json() # List of dictionaries, each dictionary represents a module
 modcodes = []
@@ -81,5 +83,3 @@ def view_exams( message ):
         markup = telebot.types.ReplyKeyboardMarkup( resize_keyboard = True, one_time_keyboard = True )
         markup.add( button )
         bot.send_message( int(userid), f"Here are your exam dates for AY {ay.replace( '-', '/' )} Semester {semester+1}:\n\n{output}", reply_markup = markup )
-
-bot.infinity_polling()

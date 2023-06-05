@@ -9,6 +9,7 @@ from firebase_admin import firestore
 import datetime
 import requests
 from datetime import datetime
+from datetime import timedelta
 import time
 import icalendar
 import pytz
@@ -1110,7 +1111,7 @@ def school_timetable( message, userid ):
                     unconfigured += f'{doc2.id} \n\n'
                     unconfigured_list.append( doc2.id )
         if unconfigured == "": # If all User's lessons are configured, proceed to view timetable
-             view_timetable( message )
+             view_timetable( message, userid )
         else: # If User has unconfigured lessons, can choose to configure, ignore and proceed to view, or return to main
             button1 = telebot.types.KeyboardButton( "Configure lessons" )
             button2 = telebot.types.KeyboardButton( "Unconfigure lessons" )
@@ -1248,7 +1249,9 @@ def view_timetable( message, userid ):
         tt_days = sorted( tt_dic, key = lambda x: days.index(x) ) # Sorted list of dictionary keys
         text = ""
         for day in tt_days:
-            text += day.upper() + "\n\n"
+            days_passed = (week_no-1)*7 + days.index( day )
+            date = (sem_start + timedelta( days = days_passed )).strftime( "%d/%m/%Y" )
+            text += f"{day.upper()}, {date}\n\n"
             for lesson in tt_dic[day]:
                 text += f'{lesson["name"]}\nStart: {lesson["startTime"]}\nEnd: {lesson["endTime"]}\nVenue: {lesson["venue"]}\n\n'
             text += "\n"
@@ -1290,10 +1293,18 @@ def view_exams( message, userid ):
     doc_ref = db.collection( "users" ).document( userid ).collection( "exam" ).document( "timings" )
     doc = doc_ref.get().to_dict() # Returns a dictionary where the keys are module codes and items are the respective exam timings. Can be empty
     output = ""
+    exam_list = []
     for mod_code in doc:
-        date = doc[mod_code][0] # Date of exam
+        exam_list.append( mod_code )
+    exam_list = sorted( exam_list, key = lambda x: doc[x][0][5:7] )
+    for mod_code in exam_list:
+        dd = doc[mod_code][0][8:10] # Day of exam
+        mm = doc[mod_code][0][5:7]
+        yy = doc[mod_code][0][:4]
+        date = f'{dd}/{mm}/{yy}'
         duration = doc[mod_code][1] # Duration of exam
-        output += f'{mod_code} Finals\nDate: { date }\nDuration: { duration } minutes\n\n'
+        cd = (datetime( int(yy), int(mm), int(dd) ) - test_date).days
+        output += f'{mod_code} Finals\nDate: { date }\nDuration: { duration } minutes\nCountdown: {cd} days\n\n'
     if output == "": # If the User does not have any exams
         all_mods = db.collection( "users" ).document( userid ).collection( "all_mods" ).document( "all_mods" ).get().to_dict()
         if len( all_mods ) > 0:
