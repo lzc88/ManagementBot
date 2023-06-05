@@ -1344,14 +1344,15 @@ def view_exams( message, userid ):
         date = f'{dd}/{mm}/{yy}'
         duration = doc[mod_code][1] # Duration of exam
         cd = (datetime( int(yy), int(mm), int(dd) ) - test_date).days
-        output += f'{mod_code} Finals\nDate: { date }\nDuration: { duration } minutes\nCountdown: {cd} days\n\n'
+        if cd >= 0:
+            output += f'{mod_code} Finals\nDate: { date }\nDuration: { duration } minutes\nCountdown: {cd} days\n\n'
     if output == "": # If the User does not have any exams
         all_mods = db.collection( "users" ).document( userid ).collection( "all_mods" ).document( "all_mods" ).get().to_dict()
         if len( all_mods ) > 0:
             button = telebot.types.KeyboardButton( "Return to Main" )
             markup = telebot.types.ReplyKeyboardMarkup( resize_keyboard = True, one_time_keyboard = True )
             markup.add(button)
-            bot.send_message( int(userid), "You have no examinations this semester! :)", reply_markup = markup )
+            bot.send_message( int(userid), "You have no examinations! :)", reply_markup = markup )
         else:
             button1 = telebot.types.KeyboardButton( "Add module" )
             button2 = telebot.types.KeyboardButton( "Return to Main" )
