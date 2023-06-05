@@ -816,7 +816,8 @@ def process_delete_event(message, event_docs):
 
 # FUNCTION (3) School Timetable
 
-def choice3( message, userid ):
+########## FUNCTION TO DIRECT USER BASED ON OPTION SELECTED IN EXAM TIMETABLE ##########
+def choice3( message, userid ): # Choice options for School Timetable function
     option = message.text
     if option == "Add module":
         go_to_addmodule( message, userid )
@@ -825,6 +826,18 @@ def choice3( message, userid ):
     elif option == "Return to Main":
         main( message )
 
+def choice3a( message, userid, unconfigured_list ): 
+    option = message.text
+    if option == "Configure lessons":
+        prompt_config_lesson( message, userid, unconfigured_list )
+    elif option == "Unconfigure lessons":
+        prompt_unconfig( message, userid )
+    elif option == "Ignore and proceed to view school timetable":
+        view_timetable( message, userid )
+    elif option == "Return to Main":
+        main( message )
+
+########## FUNCTION TO PROMPT USER TO CONFIG/UNCONFIG LESSON/VIEW TT ##########
 def school_timetable( message, userid ):
     doc_ref = db.collection( "users" ).document( userid ).collection( "all_mods" ).document( "all_mods" ) # Reference to check if User's mods are configured / If User has any modules
     doc = doc_ref.get().to_dict() # Dictionary containing all of User's mods, can be empty
@@ -845,12 +858,13 @@ def school_timetable( message, userid ):
              view_timetable( message )
         else: # If User has unconfigured lessons, can choose to configure, ignore and proceed to view, or return to main
             button1 = telebot.types.KeyboardButton( "Configure lessons" )
-            button2 = telebot.types.KeyboardButton( "Ignore and proceed to view school timetable" )
-            button3 = telebot.types.KeyboardButton( "Return to Main" )
+            button2 = telebot.types.KeyboardButton( "Unconfigure lessons" )
+            button3 = telebot.types.KeyboardButton( "Ignore and proceed to view school timetable" )
+            button4 = telebot.types.KeyboardButton( "Return to Main" )
             markup = telebot.types.ReplyKeyboardMarkup( resize_keyboard = True, one_time_keyboard = True )
-            markup.add( button1 ).add( button2 ).add( button3 )
+            markup.add( button1 ).add( button2 ).add( button3 ).add( button4 )
             bot.send_message( int(userid), "You have not configured the timings for these lessons. Would you like to configure them now? The lesson slot numbers are required.\n\n" + unconfigured, reply_markup = markup )
-            bot.register_next_step_handler( message, prompt_config_lesson, unconfigured_list )
+            bot.register_next_step_handler( message, choice3a, userid, unconfigured_list )
     else: # If User has no mods
         button1 = telebot.types.KeyboardButton( "Add modules" )
         button2 = telebot.types.KeyboardButton( "Return to Main" )
@@ -859,31 +873,27 @@ def school_timetable( message, userid ):
         bot.send_message( int(userid), "You have no modules, please proceed to add modules.",reply_markup = markup )
         bot.register_next_step_handler( message, choice3, userid ) # Next step based on User's choice
 
-def prompt_config_lesson( message, unconfigured_list ):
-    if message.text == "Configure lessons":
-        markup = telebot.types.ReplyKeyboardMarkup( resize_keyboard = True, one_time_keyboard = True )
-        for item in unconfigured_list:
-            button = telebot.types.KeyboardButton( item )
-            markup.add( button )
-        bot.send_message( message.chat.id, "Which lesson would you like to configure?", reply_markup = markup )
-        bot.register_next_step_handler( message, config_lesson1, unconfigured_list )
-    elif message.text == "Ignore and proceed to view school timetable":
-        view_timetable( message )
-    elif message.text == "Return to Main":
-        main( message )
+########## FUNCTION TO SELECT LESSON TO CONFIGURE ##########
+def prompt_config_lesson( message, userid, unconfigured_list ):
+    markup = telebot.types.ReplyKeyboardMarkup( resize_keyboard = True, one_time_keyboard = True )
+    for item in unconfigured_list:
+        button = telebot.types.KeyboardButton( item )
+        markup.add( button )
+    bot.send_message( int(userid), "Which lesson would you like to configure?", reply_markup = markup )
+    bot.register_next_step_handler( message, config_lesson1, userid, unconfigured_list )
 
-def config_lesson1( message, unconfigured_list ):
-    userid = str( message.chat.id )
+########## FUNCTION TO CONFIGURE LESSON (1) ##########
+def config_lesson1( message, userid, unconfigured_list ):
     lesson = message.text
     if lesson in unconfigured_list:
-        bot.send_message( message.chat.id, f'What is your lesson slot number for {lesson}? \n\nFor lectures/tutorials with only one slot, please key in 1. Otherwise, please key in your allocated slot number. \n\nFor odd/even lessons, please key in the full lesson slot number as seen on NUSMods. For example: \nE23, D09, E9 etc. \n\nFor all other lessons, please key in the numbers only. For example: \nSEC-09 will be 09.' )
-        bot.register_next_step_handler( message, config_lesson2, lesson )
+        bot.send_message( int(userid), f'What is your lesson slot number for {lesson}? \n\nFor lectures/tutorials with only one slot, please key in 1. Otherwise, please key in your allocated slot number. \n\nFor odd/even lessons, please key in the full lesson slot number as seen on NUSMods. For example: \nE23, D09, E9 etc. \n\nFor all other lessons, please key in the numbers only. For example: \nSEC-09 will be 09.' )
+        bot.register_next_step_handler( message, config_lesson2, userid, lesson )
     else:
         bot.send_message( message.chat.id, "That is an invalid lesson. Please try again.")
         school_timetable( message, userid )
 
-def config_lesson2( message, lesson ):
-    userid = str(message.chat.id)
+########## FUNCTION TO CONFIGURE LESSON (2) ##########
+def config_lesson2( message, userid, lesson ):
     lesson_list = lesson.split( maxsplit = 1 )
     mod_code, lesson_type = lesson_list[0], lesson_list[1]
     lesson_no = message.text.upper()
@@ -906,11 +916,43 @@ def config_lesson2( message, lesson ):
         bot.send_message( int(userid), "Your lesson slot could not be found. Please return to School Timetable to try again. If error persists, kindly feedback this issue to us via the Main menu, thank you!", reply_markup = markup )
         bot.register_next_step_handler( message, choice3, userid )
 
+########## FUNCTION TO SELECT LESSON TO UNCONFIGURE ##########
+def prompt_unconfig( message, userid ):
+    mods = db.collection( "users" ).document( userid ).collection( "mods" ).stream()
+    configlist = []
+    for mod in mods:
+        lessons = db.collection( "users" ).document( userid ).collection( "mods" ).document( mod.id ).collection( "lessons" ).stream()
+        for lesson in lessons:
+            lesson_status = db.collection( "users" ).document( userid ).collection( "mods" ).document( mod.id ).collection( "lessons" ).document( lesson.id ).get().to_dict()[ "config" ]
+            if lesson_status:
+                configlist.append( lesson.id )
+    if not configlist:
+        bot.send_message( int(userid), "You have no configured lessons, please proceed to configure them." )
+        school_timetable( message, userid )
+    else:
+        markup = telebot.types.ReplyKeyboardMarkup( resize_keyboard = True, one_time_keyboard = True )
+        for lesson in configlist:
+            button = telebot.types.KeyboardButton( lesson )
+            markup.add( button )
+        bot.send_message( int(userid), "Which lesson would you like to unconfigure?", reply_markup = markup )
+        bot.register_next_step_handler( message, unconfig, userid )
+
+########## FUNCTION TO UNCONFIGURE LESSON ##########
+def unconfig( message, userid ):
+    dummy = message.text.split( maxsplit = 1 )
+    mod_code = dummy[0]
+    lesson = dummy[1]
+    db.collection( "users" ).document( userid ).collection( "mods" ).document( mod_code ).collection( "lessons" ).document( message.text ).set( {"config": False} )
+    regenerate( message )
+    bot.send_message( int(userid), f"{message.text} has been unconfigured!" )
+    school_timetable( message, userid )
+
 ########## DATE FOR TESTING ##########
 test_date = datetime( 2023, 2, 6 )
+######################################
 
-def view_timetable( message ):
-    userid = str( message.chat.id )
+########## FUNCTION TO VIEW TIMETABLE ##########
+def view_timetable( message, userid ):
     week_no = math.floor(((test_date - sem_start).days)/7 + 1) # The current week number
     week_ref = db.collection( "users" ).document( userid ).collection( "timetable" ).document( "this_week" )
     this_week = week_ref.get().to_dict()
@@ -928,7 +970,7 @@ def view_timetable( message ):
                             slot[ "name" ] = lesson.id
                             lesson_list.append( slot )
         db.collection( "users" ).document( userid ).collection( "timetable" ).document( "this_week" ).set( { str(week_no) : lesson_list } )
-        view_timetable( message )
+        view_timetable( message, userid )
     else:
         bot.send_message( int(userid), f"Please wait while we fetch your timetable for week {week_no}, thank you!" )
         tt_ref = db.collection( "users" ).document( userid ).collection( "timetable" ).document( "this_week" )
@@ -959,13 +1001,15 @@ def view_timetable( message ):
             bot.send_message( int(userid) , f"You have no more lessons for week {week_no}. Have a good rest!" )
             main( message )
         else:
-            button1 = telebot.types.KeyboardButton( "Return to Main" )
+            button1 = telebot.types.KeyboardButton( "Unconfigure lessons" )
+            button2 = telebot.types.KeyboardButton( "Return to Main" )
             markup = telebot.types.ReplyKeyboardMarkup( resize_keyboard = True, one_time_keyboard = True )
-            markup.add( button1 )
+            markup.add( button1 ).add( button2 )
             bot.send_message( int(userid), f"Here is your time table for week {week_no}!" )
             bot.send_message( int(userid), text, reply_markup = markup )
-            bot.register_next_step_handler( message, choice3, userid )
+            bot.register_next_step_handler( message, choice3a, userid )
 
+########## FUNCTION TO RESTART WEEKLY TIMETABLE ##########
 def regenerate( message ):
     userid = str( message.chat.id )
     db.collection( "users" ).document( userid ).collection( "timetable" ).document( "this_week" ).set({})
@@ -976,6 +1020,7 @@ def regenerate( message ):
 
 # FUNCTION (4) Exam Timetable
 
+########## FUNCTION TO DIRECT USER BASED ON OPTION SELECTED IN EXAM TIMETABLE ##########
 def choice4( message, userid ):
     option = message.text
     if option == "Add module":
@@ -985,6 +1030,7 @@ def choice4( message, userid ):
     elif option == "Return to Main":
         main( message )
 
+########## VIEW EXAM FUNCTION ##########
 def view_exams( message, userid ):
     doc_ref = db.collection( "users" ).document( userid ).collection( "exam" ).document( "timings" )
     doc = doc_ref.get().to_dict() # Returns a dictionary where the keys are module codes and items are the respective exam timings. Can be empty
@@ -993,13 +1039,20 @@ def view_exams( message, userid ):
         date = doc[mod_code][0] # Date of exam
         duration = doc[mod_code][1] # Duration of exam
         output += f'{mod_code} Finals\nDate: { date }\nDuration: { duration } minutes\n\n'
-    if output == "": # If the User does not have any exams ( No modules added )
-        button1 = telebot.types.KeyboardButton( "Add module" )
-        button2 = telebot.types.KeyboardButton( "Return to Main" )
-        markup = telebot.types.ReplyKeyboardMarkup( resize_keyboard = True, one_time_keyboard = True )
-        markup.add( button1 ).add( button2 )
-        bot.send_message( int(userid), "You have no modules, please proceed to add modules.", reply_markup = markup )
-        bot.register_next_step_handler( message, choice4, userid ) # Next step based on User's choice
+    if output == "": # If the User does not have any exams
+        all_mods = db.collection( "users" ).document( userid ).collection( "all_mods" ).document( "all_mods" ).get().to_dict()
+        if len( all_mods ) > 0:
+            button = telebot.types.KeyboardButton( "Return to Main" )
+            markup = telebot.types.ReplyKeyboardMarkup( resize_keyboard = True, one_time_keyboard = True )
+            markup.add(button)
+            bot.send_message( int(userid), "You have no examinations this semester! :)", reply_markup = markup )
+        else:
+            button1 = telebot.types.KeyboardButton( "Add module" )
+            button2 = telebot.types.KeyboardButton( "Return to Main" )
+            markup = telebot.types.ReplyKeyboardMarkup( resize_keyboard = True, one_time_keyboard = True )
+            markup.add( button1 ).add( button2 )
+            bot.send_message( int(userid), "You have no modules, please proceed to add modules.", reply_markup = markup )
+            bot.register_next_step_handler( message, choice4, userid ) # Next step based on User's choice
     else:
         button1 = telebot.types.KeyboardButton( "Add module" )
         button2 = telebot.types.KeyboardButton( "Delete module" )
@@ -1017,9 +1070,9 @@ def view_exams( message, userid ):
 # FUNCTIONS (5) View Modules, Add module, and Delete module
 
 ########## HELPER FUNCTION FOR ADDING EXAM TIMING, TO BE USED IN ADD MODULE ##########
-def add_exam( userid, mod_code ):
+def add_exam( userid, mod_code, sem ):
     mod_details_req = requests.get( mod_details_end.replace( replace_ay, ay ).replace( replace_mod, mod_code ) )
-    mod_details = mod_details_req.json()['semesterData'][semester]
+    mod_details = mod_details_req.json()['semesterData'][sem]
     if 'examDate' in mod_details:
         db.collection( "users" ).document( userid ).collection( "exam" ).document( "timings" ).update( { mod_code : [ mod_details['examDate'], mod_details['examDuration'] ] } )
 
@@ -1028,19 +1081,19 @@ def remove_exam( userid, mod_code ):
     db.collection( "users" ).document( userid ).collection( "exam" ).document( "timings" ).update( { mod_code : firestore.DELETE_FIELD} )
 
 ########## FUNCTION TO DIRECT USER BASED ON OPTION SELECTED IN VIEW MODULES ##########
-def choice5( text, userid ):
-    option = text.text
+def choice5( message, userid ):
+    option = message.text
     if option == "Add module":
-        go_to_addmodule( text, userid )
+        go_to_addmodule( message, userid )
     elif option == "Delete module":
-        go_delete_module( text, userid )
+        go_delete_module( message, userid )
     elif option == "View modules":
-        view_modules( text, userid )
+        view_modules( message, userid )
     elif option == "Return to Main":
-        main( text )
+        main( message )
 
 ########## VIEW MODULES FUNCTION ##########
-def view_modules( text, userid ):
+def view_modules( message, userid ):
     doc_ref = db.collection( "users" ).document( userid ).collection( "all_mods" ).document( "all_mods" ) # Reference to check if User has any modules to view
     doc = doc_ref.get().to_dict() # Dictionary of all User's modules, can be empty
     if len(doc) > 0: # If the User has modules to view
@@ -1054,22 +1107,22 @@ def view_modules( text, userid ):
         markup = telebot.types.ReplyKeyboardMarkup( resize_keyboard = True, one_time_keyboard = True ) # Reply message with options to procede
         markup.add( button1 ).add( button2 ).add( button3 )
         bot.send_message( int(userid), "What would you like to do?" , reply_markup = markup )
-        bot.register_next_step_handler( text, choice5, userid ) # Next step based on User's choice
+        bot.register_next_step_handler( message, choice5, userid ) # Next step based on User's choice
     else: # If the User has no modules to view
         button1 = telebot.types.KeyboardButton( "Add module" )
         button2 = telebot.types.KeyboardButton( "Return to Main" )
         markup = telebot.types.ReplyKeyboardMarkup( resize_keyboard = True, one_time_keyboard = True )
         markup.add(button1).add(button2)
         bot.send_message( int(userid), "You have no modules, please proceed to add modules.", reply_markup = markup ) # Reply message with options to procede
-        bot.register_next_step_handler( text, choice5, userid ) # Next step based on User's choice
+        bot.register_next_step_handler( message, choice5, userid ) # Next step based on User's choice
         
 ########## ADD MODULE FUNCTION ##########
-def go_to_addmodule( text, userid ):
+def go_to_addmodule( message, userid ):
     bot.send_message( userid, "Please enter the module code." )
-    bot.register_next_step_handler( text, add_module, userid )
+    bot.register_next_step_handler( message, add_module, userid )
 
-def add_module( text, userid ):
-    formtext = text.text.upper() # Proper format of module code
+def add_module( message, userid ):
+    formtext = message.text.upper() # Proper format of module code
     if formtext in modcodes: # If the input module is a valid module code
         doc_ref = db.collection( "users" ).document( userid ).collection( "all_mods" ).document( "all_mods" ) # Reference to check if input module is in DB
         doc = doc_ref.get().to_dict() # Dictionary of all User's modules, can be empty
@@ -1081,16 +1134,24 @@ def add_module( text, userid ):
             mod_details_req = requests.get( mod_details_end.replace( replace_ay, ay ).replace( replace_mod, formtext ) ) # API request for details of input module
             mod_details = mod_details_req.json() # All details for input module
             title = mod_details["title"] # Title of module
-            mod_tt = mod_details["semesterData"][semester]['timetable'] # All lesson types and slots of the module for the current semester
-            mod_lesson_types = []
-            for i in mod_tt: # mod_lesson_types will be a List of the different lesson types at the end of this For loop
-                if i[ "lessonType" ] not in mod_lesson_types:
-                    mod_lesson_types.append( i["lessonType"] )
-            db.collection( "users" ).document( userid ).collection( "all_mods" ).document( "all_mods" ).set( {formtext: title }, merge = True ) # Add module code and title to all_mods document
-            for i in mod_lesson_types: # In the new module document, create a new collection and in this collection, create documents for each lesson type to store timings and venues in the future
-                db.collection( "users" ).document( userid ).collection( "mods" ).document( formtext ).collection( "lessons" ).document( f'{formtext} {i}' ).set( {"config" : False} ) # Create document for each lesson type input module has
-            add_exam( userid, formtext ) # Using helper function to add exam timing for input module to DB
-            bot.send_message( int(userid), "Ok, I have added " + formtext + ": " + title + ", to your modules." ) # Reply message
+            try:
+                mod_tt = mod_details['semesterData'][semester]['timetable']
+            except:
+                dummysem = 0
+                mod_sem = mod_details['semesterData'][dummysem]['semester']
+            if mod_sem == semester+1:
+                mod_tt = mod_details['semesterData'][dummysem]['timetable']
+                mod_lesson_types = []
+                for i in mod_tt: # mod_lesson_types will be a List of the different lesson types at the end of this For loop
+                    if i[ "lessonType" ] not in mod_lesson_types:
+                        mod_lesson_types.append( i["lessonType"] )
+                db.collection( "users" ).document( userid ).collection( "all_mods" ).document( "all_mods" ).set( {formtext: title }, merge = True ) # Add module code and title to all_mods document
+                for i in mod_lesson_types: # In the new module document, create a new collection and in this collection, create documents for each lesson type to store timings and venues in the future
+                    db.collection( "users" ).document( userid ).collection( "mods" ).document( formtext ).collection( "lessons" ).document( f'{formtext} {i}' ).set( {"config" : False} ) # Create document for each lesson type input module has
+                add_exam( userid, formtext, dummysem ) # Using helper function to add exam timing for input module to DB
+                bot.send_message( int(userid), "Ok, I have added " + formtext + ": " + title + ", to your modules." ) # Reply message
+            else:
+                bot.send_message( int(userid), f"{formtext}: {title}, is not available in Semester {mod_sem}." )
         button1 = telebot.types.KeyboardButton( "View modules" )
         button2 = telebot.types.KeyboardButton( "Add module" )
         button3 = telebot.types.KeyboardButton( "Delete module" )
@@ -1098,13 +1159,13 @@ def add_module( text, userid ):
         markup = telebot.types.ReplyKeyboardMarkup( resize_keyboard = True, one_time_keyboard = True )
         markup.add( button1 ).add( button2 ).add( button3 ).add( button4 )
         bot.send_message( int(userid), "What would you like to do?" , reply_markup = markup ) # Reply message with options to procede
-        bot.register_next_step_handler( text, choice5, userid ) # Next step based on User's choice
+        bot.register_next_step_handler( message, choice5, userid ) # Next step based on User's choice
     else: # Input module is an invalid module code
         bot.send_message( int(userid), "That is an invalid module code, please try again." )
-        view_modules( text, userid ) # Prompt User to add module again
+        view_modules( message, userid ) # Prompt User to add module again
 
 ########## DELETE MODULE FUNCTION ##########
-def go_delete_module( text, userid ):
+def go_delete_module( message, userid ):
     doc_ref = db.collection( "users" ).document( userid ).collection( "all_mods" ).document( "all_mods" ) # Reference to check if User has any modules to delete
     doc = doc_ref.get().to_dict() # Dictionary of all User's modules, can be empty
     if len(doc) > 0: # If User has modules to delete
@@ -1115,24 +1176,25 @@ def go_delete_module( text, userid ):
         button = telebot.types.KeyboardButton( "Return to Main" )
         markup.add( button )
         bot.send_message( int(userid), "What would you like to do?", reply_markup = markup ) # Reply with options on what to delete, or Return to Main
-        bot.register_next_step_handler( text, delete_module, userid ) # Next step based on User's choice
+        bot.register_next_step_handler( message, delete_module, userid ) # Next step based on User's choice
     else: # User has no modules to delete
         button1 = telebot.types.KeyboardButton( "Add module" )
         button2 = telebot.types.KeyboardButton( "Return to Main" )
         markup = telebot.types.ReplyKeyboardMarkup( resize_keyboard = True, one_time_keyboard = True )
         markup.add( button1 ).add( button2 )
         bot.send_message( int(userid), "You have no modules, please procede to add modules.", reply_markup = markup ) # Reply with options to Add module or Return to Main
-        bot.register_next_step_handler( text, choice5, userid ) # Next step based on User's choice
+        bot.register_next_step_handler( message, choice5, userid ) # Next step based on User's choice
 
-def delete_module( text, userid ):
-    option = text.text
+def delete_module( message, userid ):
+    option = message.text
     if option == "Return to Main":
-        main( text )
+        main( message )
     else:
-        mod_to_delete = text.text[ 7: ] # Module code of module to delete, in  proper format
+        mod_to_delete = message.text[ 7: ] # Module code of module to delete, in  proper format
         title = db.collection( "users" ).document( userid ).collection( "all_mods" ).document( "all_mods" ).get().to_dict()[ mod_to_delete ] # Title of module
         db.collection( "users" ).document( userid ).collection( "mods" ).document( mod_to_delete ).delete()
         db.collection( "users" ).document( userid ).collection( "all_mods" ).document( "all_mods" ).update( { mod_to_delete : firestore.DELETE_FIELD } )
+        regenerate( message )
         remove_exam( userid, mod_to_delete )
         button1 = telebot.types.KeyboardButton( "View modules" )
         button2 = telebot.types.KeyboardButton( "Add module" )
@@ -1142,7 +1204,7 @@ def delete_module( text, userid ):
         markup.add( button1 ).add( button2 ).add( button3 ).add( button4 )
         bot.send_message( int(userid), mod_to_delete + ": " + title + ", has been deleted from your modules." ) # Reply message
         bot.send_message( int(userid), "What would you like to do?", reply_markup = markup ) # Reply message with options to procede
-        bot.register_next_step_handler( text, choice5, userid ) # Next step based on User's choice
+        bot.register_next_step_handler( message, choice5, userid ) # Next step based on User's choice
 
 
 # END OF FUNCTIONS (5) View Modules, Add module and Delete module
