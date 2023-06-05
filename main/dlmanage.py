@@ -36,19 +36,35 @@ replace_mod = "{moduleCode}"
 mods_basic_end = os.getenv( "allmods" )
 mod_details_end = os.getenv( "moddetails" )
 
-########## TEST DATES ##########
+########## TEST DATES AY 22/23 ##########
 month_now = datetime.now().month
+### SEMESTER ###
 if month_now < 8:
     semester = 1
 else:
     semester = 0
 ay = "2022-2023"
+### SEM START/END ###
 if semester == 0:
     sem_start = datetime( 2022, 8, 8 )
-    sem_end = datetime( 2022, 11, 18 )
+    sem_end = datetime( 2022, 12, 3 )
 else:
     sem_start = datetime( 2023, 1, 9 )
-    sem_end = datetime( 2023, 4, 14 )
+    sem_end = datetime( 2023, 5, 6 )
+### RECESS WEEK START/END ###
+if semester == 0:
+    recess_start = datetime( 2022, 9, 17 )
+    recess_end = datetime( 2022, 9, 25 )
+else:
+    recess_start = datetime( 2023, 2, 18 )
+    recess_end = datetime( 2023, 2, 26 )
+### READING WEEK START/END ###
+if semester == 0:
+    read_start = datetime( 2022, 11, 12 )
+    read_end = datetime( 2022, 11, 18 )
+else:
+    read_start = datetime( 2023, 4, 15 )
+    read_end = datetime( 2023, 4, 21 )
 
 days = ["Monday","Tuesday","Wednesday","Thursday","Friday","Saturday","Sunday"]
 
@@ -1204,68 +1220,92 @@ def unconfig( message, userid ):
     school_timetable( message, userid )
 
 ########## DATE FOR TESTING ##########
-test_date = datetime( 2023, 2, 6 )
+test_date = datetime( 2023, 2, 28 )
 ######################################
 
 ########## FUNCTION TO VIEW TIMETABLE ##########
 def view_timetable( message, userid ):
-    week_no = math.floor(((test_date - sem_start).days)/7 + 1) # The current week number
-    week_ref = db.collection( "users" ).document( userid ).collection( "timetable" ).document( "this_week" )
-    this_week = week_ref.get().to_dict()
-    if str(week_no) not in this_week: # If this week's timetable does not match with current week's number
-        bot.send_message( int(userid) , f"Please hold on while I generate your timetable for week {week_no}, thank you!" )
-        lesson_list = []
-        mods = db.collection( "users" ).document( userid ).collection( "mods" ).stream()
-        for mod in mods:
-            lesson_types = db.collection( "users" ).document( userid ).collection( "mods" ).document( mod.id ).collection( "lessons" ).stream()
-            for lesson in lesson_types:
-                slots = db.collection( "users" ).document( userid ).collection( "mods" ).document( mod.id ).collection( "lessons" ).document( lesson.id ).get().to_dict()
-                if slots["config"]:
-                    for slot in slots["timings"]:
-                        if week_no in slot["weeks"]:
-                            slot[ "name" ] = lesson.id
-                            lesson_list.append( slot )
-        db.collection( "users" ).document( userid ).collection( "timetable" ).document( "this_week" ).set( { str(week_no) : lesson_list } )
-        view_timetable( message, userid )
+    if recess_start < test_date < recess_end:
+        button = telebot.types.KeyboardButton( "Return to Main")
+        markup = telebot.types.ReplyKeyboardMarkup( resize_keyboard = True, one_time_keyboard = True )
+        markup.add( button )
+        bot.send_message( int(userid), "It is recess week, have a good rest! :)", reply_markup = markup )
+    elif read_start < test_date < read_end:
+        button = telebot.types.KeyboardButton( "Return to Main")
+        markup = telebot.types.ReplyKeyboardMarkup( resize_keyboard = True, one_time_keyboard = True )
+        markup.add( button )
+        bot.send_message( int(userid), "It is reading week, have a good rest! :)", reply_markup = markup )
+    elif read_end < test_date:
+        button = telebot.types.KeyboardButton( "Return to Main")
+        markup = telebot.types.ReplyKeyboardMarkup( resize_keyboard = True, one_time_keyboard = True )
+        markup.add( button )
+        bot.send_message( int(userid), "You have no more classes, all the best for your exams!", reply_markup = markup )
+    elif sem_end < test_date:
+        button = telebot.types.KeyboardButton( "Return to Main")
+        markup = telebot.types.ReplyKeyboardMarkup( resize_keyboard = True, one_time_keyboard = True )
+        markup.add( button )
+        bot.send_message( int(userid), "The semester has ended, have a good break! :)", reply_markup = markup )
     else:
-        bot.send_message( int(userid), f"Please wait while we fetch your timetable for week {week_no}, thank you!" )
-        tt_ref = db.collection( "users" ).document( userid ).collection( "timetable" ).document( "this_week" )
-        tt = tt_ref.get().to_dict()
-        for lesson in tt[str(week_no)]:
-            day = lesson["day"]
-            if days.index( day ) < test_date.weekday():
-                tt_ref.update( { str(week_no) : firestore.ArrayRemove( [lesson] ) } )
-        tt_list = []
-        for lesson in tt[str(week_no)]:
-            tt_list.append( lesson )
-        tt_dic = {}
-        for lesson in tt_list:
-            if lesson['day'] not in tt_dic:
-                tt_dic[ lesson['day'] ] = [ lesson ]
-            else:
-                tt_dic[ lesson['day'] ].append( lesson )
-        for day in tt_dic:
-            tt_dic[day] = sorted( tt_dic[day], key = lambda x: x["startTime"] )
-        tt_days = sorted( tt_dic, key = lambda x: days.index(x) ) # Sorted list of dictionary keys
-        text = ""
-        for day in tt_days:
-            days_passed = (week_no-1)*7 + days.index( day )
-            date = (sem_start + timedelta( days = days_passed )).strftime( "%d/%m/%Y" )
-            text += f"{day.upper()}, {date}\n\n"
-            for lesson in tt_dic[day]:
-                text += f'{lesson["name"]}\nStart: {lesson["startTime"]}\nEnd: {lesson["endTime"]}\nVenue: {lesson["venue"]}\n\n'
-            text += "\n"
-        if text == "":
-            bot.send_message( int(userid) , f"You have no more lessons for week {week_no}. Have a good rest!" )
-            main( message )
+        week_no = math.floor(((test_date - sem_start).days)/7 + 1) # The current week number
+        if recess_end < test_date:
+            week_no -= 1
+        week_ref = db.collection( "users" ).document( userid ).collection( "timetable" ).document( "this_week" )
+        this_week = week_ref.get().to_dict()
+        if str(week_no) not in this_week: # If this week's timetable does not match with current week's number
+            bot.send_message( int(userid) , f"Please hold on while I generate your timetable for week {week_no}, thank you!" )
+            lesson_list = []
+            mods = db.collection( "users" ).document( userid ).collection( "mods" ).stream()
+            for mod in mods:
+                lesson_types = db.collection( "users" ).document( userid ).collection( "mods" ).document( mod.id ).collection( "lessons" ).stream()
+                for lesson in lesson_types:
+                    slots = db.collection( "users" ).document( userid ).collection( "mods" ).document( mod.id ).collection( "lessons" ).document( lesson.id ).get().to_dict()
+                    if slots["config"]:
+                        for slot in slots["timings"]:
+                            if week_no in slot["weeks"]:
+                                slot[ "name" ] = lesson.id
+                                lesson_list.append( slot )
+            db.collection( "users" ).document( userid ).collection( "timetable" ).document( "this_week" ).set( { str(week_no) : lesson_list } )
+            view_timetable( message, userid )
         else:
-            button1 = telebot.types.KeyboardButton( "Unconfigure lessons" )
-            button2 = telebot.types.KeyboardButton( "Return to Main" )
-            markup = telebot.types.ReplyKeyboardMarkup( resize_keyboard = True, one_time_keyboard = True )
-            markup.add( button1 ).add( button2 )
-            bot.send_message( int(userid), f"Here is your time table for week {week_no}!" )
-            bot.send_message( int(userid), text, reply_markup = markup )
-            bot.register_next_step_handler( message, choice3a, userid, None )
+            bot.send_message( int(userid), f"Please wait while we fetch your timetable for week {week_no}, thank you!" )
+            tt_ref = db.collection( "users" ).document( userid ).collection( "timetable" ).document( "this_week" )
+            tt = tt_ref.get().to_dict()
+            for lesson in tt[str(week_no)]:
+                day = lesson["day"]
+                if days.index( day ) < test_date.weekday():
+                    tt_ref.update( { str(week_no) : firestore.ArrayRemove( [lesson] ) } )
+            upd_tt = db.collection( "users" ).document( userid ).collection( "timetable" ).document( "this_week" ).get().to_dict()
+            tt_list = []
+            for lesson in upd_tt[str(week_no)]:
+                tt_list.append( lesson )
+            tt_dic = {}
+            for lesson in tt_list:
+                if lesson['day'] not in tt_dic:
+                    tt_dic[ lesson['day'] ] = [ lesson ]
+                else:
+                    tt_dic[ lesson['day'] ].append( lesson )
+            for day in tt_dic:
+                tt_dic[day] = sorted( tt_dic[day], key = lambda x: x["startTime"] )
+            tt_days = sorted( tt_dic, key = lambda x: days.index(x) ) # Sorted list of dictionary keys
+            text = ""
+            for day in tt_days:
+                days_passed = (week_no-1)*7 + days.index( day )
+                date = (sem_start + timedelta( days = days_passed )).strftime( "%d/%m/%Y" )
+                text += f"{day.upper()}, {date}\n\n"
+                for lesson in tt_dic[day]:
+                    text += f'{lesson["name"]}\nStart: {lesson["startTime"]}\nEnd: {lesson["endTime"]}\nVenue: {lesson["venue"]}\n\n'
+                text += "\n"
+            if text == "":
+                bot.send_message( int(userid) , f"You have no more lessons for week {week_no}. Have a good rest!" )
+                main( message )
+            else:
+                button1 = telebot.types.KeyboardButton( "Unconfigure lessons" )
+                button2 = telebot.types.KeyboardButton( "Return to Main" )
+                markup = telebot.types.ReplyKeyboardMarkup( resize_keyboard = True, one_time_keyboard = True )
+                markup.add( button1 ).add( button2 )
+                bot.send_message( int(userid), f"Here is your time table for week {week_no}!" )
+                bot.send_message( int(userid), text, reply_markup = markup )
+                bot.register_next_step_handler( message, choice3a, userid, None )
 
 ########## FUNCTION TO RESTART WEEKLY TIMETABLE ##########
 def regenerate( message ):
