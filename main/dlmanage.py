@@ -1262,7 +1262,7 @@ def view_timetable( message, userid ):
             markup.add( button1 ).add( button2 )
             bot.send_message( int(userid), f"Here is your time table for week {week_no}!" )
             bot.send_message( int(userid), text, reply_markup = markup )
-            bot.register_next_step_handler( message, choice3a, userid )
+            bot.register_next_step_handler( message, choice3a, userid, None )
 
 ########## FUNCTION TO RESTART WEEKLY TIMETABLE ##########
 def regenerate( message ):
@@ -1390,12 +1390,12 @@ def add_module( message, userid ):
             mod_details = mod_details_req.json() # All details for input module
             title = mod_details["title"] # Title of module
             try:
+                mod_sem = mod_details['semesterData'][semester]['semester']
                 mod_tt = mod_details['semesterData'][semester]['timetable']
             except:
-                dummysem = 0
-                mod_sem = mod_details['semesterData'][dummysem]['semester']
+                mod_sem = mod_details['semesterData'][0]['semester']
+                mod_tt = mod_details['semesterData'][0]['timetable']
             if mod_sem == semester+1:
-                mod_tt = mod_details['semesterData'][dummysem]['timetable']
                 mod_lesson_types = []
                 for i in mod_tt: # mod_lesson_types will be a List of the different lesson types at the end of this For loop
                     if i[ "lessonType" ] not in mod_lesson_types:
@@ -1403,7 +1403,10 @@ def add_module( message, userid ):
                 db.collection( "users" ).document( userid ).collection( "all_mods" ).document( "all_mods" ).set( {formtext: title }, merge = True ) # Add module code and title to all_mods document
                 for i in mod_lesson_types: # In the new module document, create a new collection and in this collection, create documents for each lesson type to store timings and venues in the future
                     db.collection( "users" ).document( userid ).collection( "mods" ).document( formtext ).collection( "lessons" ).document( f'{formtext} {i}' ).set( {"config" : False} ) # Create document for each lesson type input module has
-                add_exam( userid, formtext, dummysem ) # Using helper function to add exam timing for input module to DB
+                try:
+                    add_exam( userid, formtext, semester ) # Using helper function to add exam timing for input module to DB
+                except:
+                    add_exam( userid, formtext, 0)
                 bot.send_message( int(userid), "Ok, I have added " + formtext + ": " + title + ", to your modules." ) # Reply message
             else:
                 bot.send_message( int(userid), f"{formtext}: {title}, is not available in Semester {mod_sem}." )
