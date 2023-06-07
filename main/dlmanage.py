@@ -1213,7 +1213,6 @@ def prompt_unconfig( message, userid ):
 def unconfig( message, userid ):
     dummy = message.text.split( maxsplit = 1 )
     mod_code = dummy[0]
-    lesson = dummy[1]
     db.collection( "users" ).document( userid ).collection( "mods" ).document( mod_code ).collection( "lessons" ).document( message.text ).set( {"config": False} )
     regenerate( message )
     bot.send_message( int(userid), f"{message.text} has been unconfigured!" )
@@ -1267,7 +1266,7 @@ def view_timetable( message, userid ):
             db.collection( "users" ).document( userid ).collection( "timetable" ).document( "this_week" ).set( { str(week_no) : lesson_list } )
             view_timetable( message, userid )
         else:
-            bot.send_message( int(userid), f"Please wait while we fetch your timetable for week {week_no}, thank you!" )
+            bot.send_message( int(userid), f"Please hold on while I fetch your timetable for week {week_no}, thank you!" )
             tt_ref = db.collection( "users" ).document( userid ).collection( "timetable" ).document( "this_week" )
             tt = tt_ref.get().to_dict()
             for lesson in tt[str(week_no)]:
