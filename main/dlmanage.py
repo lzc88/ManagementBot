@@ -9,8 +9,11 @@ from firebase_admin import firestore
 import datetime
 import requests
 from datetime import datetime
+from datetime import timedelta
 import time
 import icalendar
+import re
+import threading
 import pytz
 import math
 
@@ -18,13 +21,30 @@ import math
 dotenv.load_dotenv( dotenv_path = "config\.env" )
 
 ########## CREATING BOT INSTANCE ##########
-bottoken = os.getenv("bottoken")
+""" bottoken = os.getenv("bottoken") """
+bottoken = "6250045869:AAFzbpqRpxTfehyMOK5RHPgheiLLzBruAfk"
 bot = telebot.TeleBot(bottoken)
 
 ########## INITIALISE DB ##########
 cred = firebase_admin.credentials.Certificate("config\managementbot-72f56-firebase-adminsdk-7fs64-3c7bb1c603.json")
 dbapp = firebase_admin.initialize_app( cred )
 db = firestore.client()
+
+########## Get all user_id ###############
+def get_all_user_ids():
+    user_ids = []
+
+    # Query the database to retrieve all user documents
+    users_collection = db.collection("users")
+    user_docs = users_collection.get()
+
+    # Extract user IDs from the documents
+    for doc in user_docs:
+        user_id = doc.id
+        user_ids.append(user_id)
+
+    return user_ids
+
 
 ########## ADMIN USER ID ########## **********Try to store this in the .env file so people won't see them
 approved_admins = ["966269150","291900788"]  
@@ -35,28 +55,60 @@ replace_mod = "{moduleCode}"
 mods_basic_end = os.getenv( "allmods" )
 mod_details_end = os.getenv( "moddetails" )
 
-########## TEST DATES ##########
+########## TEST DATES AY 22/23 ##########
 month_now = datetime.now().month
+### SEMESTER ###
 if month_now < 8:
     semester = 1
 else:
     semester = 0
 ay = "2022-2023"
+### SEM START/END ###
 if semester == 0:
     sem_start = datetime( 2022, 8, 8 )
-    sem_end = datetime( 2022, 11, 18 )
+    sem_end = datetime( 2022, 12, 3 )
 else:
     sem_start = datetime( 2023, 1, 9 )
-    sem_end = datetime( 2023, 4, 14 )
+    sem_end = datetime( 2023, 5, 6 )
+### RECESS WEEK START/END ###
+if semester == 0:
+    recess_start = datetime( 2022, 9, 17 )
+    recess_end = datetime( 2022, 9, 25 )
+else:
+    recess_start = datetime( 2023, 2, 18 )
+    recess_end = datetime( 2023, 2, 26 )
+### READING WEEK START/END ###
+if semester == 0:
+    read_start = datetime( 2022, 11, 12 )
+    read_end = datetime( 2022, 11, 18 )
+else:
+    read_start = datetime( 2023, 4, 15 )
+    read_end = datetime( 2023, 4, 21 )
 
 days = ["Monday","Tuesday","Wednesday","Thursday","Friday","Saturday","Sunday"]
 
+############ To store user data ############
+def get_user_data(user_id):
+    user_ref = db.collection("users").document(user_id)
+    user_doc = user_ref.get()
+
+    if user_doc.exists:
+        return user_doc.to_dict()
+    else:
+        return {}
+    
+def update_user_data(user_id, data):
+    user_ref = db.collection("users").document(user_id)
+    user_ref.set(data, merge=True)
+
+
+    
 ########## GENERATE A LIST OF MODULE CODES ##########
-mods_basic_req = requests.get( mods_basic_end.replace( replace_ay, ay ) )
+""" mods_basic_req = requests.get( mods_basic_end.replace( replace_ay, ay ) )
 mods_basic = mods_basic_req.json() # List of dictionaries, each dictionary represents a module
 modcodes = []
 for i in mods_basic:
-    modcodes.append( i["moduleCode"]) # List of all module codes
+    modcodes.append( i["moduleCode"]) # List of all module codes """
 
 ####################################################################################################
 
@@ -69,6 +121,13 @@ def choice( text, userid ):
         view_exams( text, userid )
     elif option == "School Timetable":
         school_timetable( text, userid )
+    elif option == "Assignments Deadlines":
+        assignments_deadline( text )
+    elif option == "Personal Planner":
+        personal_planner( text )
+    elif option == "Report Issues":
+        report_issues( text )
+        
 ### Add for your functions here ###
 
 ########### FUNCTN TO GREET USER ##########      
@@ -113,7 +172,9 @@ def start( startmessage ):
     doc_ref = db.collection( "users" ).document( userid ) # Reference to check if User exists in DB
     doc = doc_ref.get()
     if doc.exists: # True if User exists
-        main( startmessage ) # User is sent to the Main Menu
+        main(startmessage)
+        check_deadline_reminders(userid)
+        #check_pp_reminders(userid) #Implementing this next
     else: # If User is new
         data = { "username" : username } # Dictionary containing user's first name
         db.collection( "users" ).document( userid ).set( data ) # Create document for user with "data" as field
@@ -122,6 +183,7 @@ def start( startmessage ):
         db.collection( "users" ).document( userid ).collection( "exam" ).document( "timings" ).set({}) # Create timings document for User to be used later to add exam timings
         response = "Hello " + username +", I am ManagementBot. I hope to assist you in better planning your schedule! \n"
         response += "You can choose what you want to do by opening the keyboard buttons and selecting the relevant options."
+        check_deadline_reminders(userid)
         bot.send_message( int(userid), response )
         bot.send_message( int(userid), "Before we begin, what modules are you taking this semester?\n\n( Type and send module codes one at a time. Do wait for me to respond before sending another code! )" )
         go_to_addmodule( startmessage, userid )
@@ -167,11 +229,67 @@ def get_dl(user_id):
 
     return dl_data
 
-dl_user_data = {}
+def check_deadline_reminders(user_id):
+    last_reminder_timestamps = {}  # Dictionary to store the last reminder timestamp for each assignment
+
+    while True:
+        # Retrieve deadlines for the specific user
+        deadlines = get_dl(user_id)
+
+        # Check each deadline and send reminders if necessary
+        for deadline in deadlines:
+            if deadline['status'] == 'COMPLETED':
+                continue  # Skip completed assignments
+
+            title = deadline['title']
+            due_date = datetime.strptime(deadline['due_date'], "%A, %d/%m/%y %H%Mhrs")
+            current_date = datetime.now()
+            time_remaining = due_date - current_date
+
+            if time_remaining.total_seconds() <= 0:
+                # Deadline has passed, send reminder if not already sent
+                if title not in last_reminder_timestamps or last_reminder_timestamps[title] != 'due':
+                    # Compose the reminder message
+                    reminder_message = f"Your assignment '{title}' is due. (Due date: {due_date})."
+                    bot.send_message(user_id, reminder_message)
+                    last_reminder_timestamps[title] = 'due'
+
+            elif time_remaining.total_seconds() <= 3600 and time_remaining.total_seconds() > 0:
+                # Send reminder if not already sent at this interval
+                if title not in last_reminder_timestamps or last_reminder_timestamps[title] != '1_hour':
+                    reminder_message = f"Your assignment '{title}' will be due in 1 hour. (Due date: {due_date}). Don't forget to submit it!"
+                    bot.send_message(user_id, reminder_message)
+                    last_reminder_timestamps[title] = '1_hour'
+
+            elif time_remaining.total_seconds() <= 6 * 3600 and time_remaining.total_seconds() > 0:
+                # Send reminder if not already sent at this interval
+                if title not in last_reminder_timestamps or last_reminder_timestamps[title] != '6_hours':
+                    reminder_message = f"Your assignment '{title}' will be due in 6 hours. (Due date: {due_date}). Don't forget to finalize and submit your work!"
+                    bot.send_message(user_id, reminder_message)
+                    last_reminder_timestamps[title] = '6_hours'
+
+            elif time_remaining.total_seconds() <= 24 * 3600 and time_remaining.total_seconds() > 0:
+                # Send reminder if not already sent at this interval
+                if title not in last_reminder_timestamps or last_reminder_timestamps[title] != '24_hours':
+                    reminder_message = f"Your assignment '{title}' will be due in 24 hours. (Due date: {due_date}). Do begin on it if you haven't!"
+                    bot.send_message(user_id, reminder_message)
+                    last_reminder_timestamps[title] = '24_hours'
+
+            elif time_remaining.total_seconds() <= 24 * 3600 * 3 and time_remaining.total_seconds() > 0:
+                # Send reminder if not already sent at this interval
+                if title not in last_reminder_timestamps or last_reminder_timestamps[title] != '3_days':
+                    reminder_message = f"Your assignment '{title}' will be due in 3 days. (Due date: {due_date}). Do begin on it if you haven't!"
+                    bot.send_message(user_id, reminder_message)
+                    last_reminder_timestamps[title] = '3_days'
+
+        # Wait for 1 minute before checking deadlines again
+        time.sleep(60)
+    
 #Main function for Assignment Deadlines
 @bot.message_handler(regexp = "Assignments Deadlines")
 def assignments_deadline(message):
     user_id = str(message.from_user.id)
+    user_data = get_user_data(user_id)
     deadlines = get_dl(user_id)
 
     if deadlines:
@@ -179,11 +297,31 @@ def assignments_deadline(message):
         total_pages = (len(deadlines) + page_size - 1) // page_size
 
         # Retrieve the current page from user data (default to the first page)
-        current_page = dl_user_data.get(user_id, 1)
+        current_page = user_data.get("current_page", 1)
 
         # Calculate the start and end index for the current page
         start_index = (current_page - 1) * page_size
         end_index = start_index + page_size
+
+        # List to store titles of assignments to be deleted
+        assignments_to_delete = []
+
+        # Iterate through deadlines and check for assignments to be deleted
+        for assignment in deadlines:
+            due_date = datetime.strptime(assignment['due_date'], "%A, %d/%m/%y %H%Mhrs")
+            current_date = datetime.now()
+            time_remaining = due_date - current_date
+
+            # Check if the assignment is past due and due for more than 24 hours
+            if time_remaining.total_seconds() <= 0 and time_remaining.total_seconds() <= -24 * 3600:
+                assignments_to_delete.append(assignment['title'])
+
+        # Process the deletion of assignments
+        for title in assignments_to_delete:
+            auto_delete_assignment(user_id,title)
+
+        # Retrieve the updated deadlines after deletion
+        deadlines = get_dl(user_id)
 
         # Sort deadlines by due date
         sorted_deadlines = sorted(deadlines, key=lambda x: (x['status'] == 'COMPLETED', datetime.strptime(x['due_date'], "%A, %d/%m/%y %H%Mhrs")))
@@ -200,7 +338,15 @@ def assignments_deadline(message):
 
             # Check if the assignment is past due
             if time_remaining.total_seconds() <= 0:
-                time_left = "This Assignment is Dued"
+                # Check if the assignment is due (not completed)
+                if assignment['status'] != 'COMPLETED':
+                    # Check if the assignment is overdue by more than 24 hours
+                    if time_remaining.total_seconds() <= -24 * 3600:
+                        # Delete the assignment from cc_data and dl_data
+                        auto_delete_assignment(user_id, assignment['title'])
+                        continue  # Skip deleted assignment
+
+                time_left = "This Assignment is Due"
             else:
                 days_remaining = time_remaining.days
                 hours_remaining = time_remaining.seconds // 3600
@@ -212,7 +358,7 @@ def assignments_deadline(message):
                 elif time_remaining.total_seconds() > 0:
                     time_left = "You have less than an hour left!"
                 else:
-                    time_left = "This Assignment is Dued"
+                    time_left = "This Assignment is Due"
 
             day_of_week = due_date.strftime("%A")
             assignment_info = f"{index}) {assignment['title']}:\nDue date: {day_of_week}, {due_date.strftime('%d/%m/%y %H%Mhrs')}\nTime left: {time_left}\nStatus: {assignment['status']}\n\n"
@@ -249,7 +395,7 @@ def assignments_deadline(message):
         bot.send_message(message.chat.id, response, reply_markup=markup, parse_mode="HTML")
 
         # Update user data with the current page
-        dl_user_data[user_id] = current_page
+        update_user_data(user_id, {"current_page": current_page})
 
     else:
         response = "Your deadlines list is empty. Please add in deadlines to use this function.\n\n"
@@ -271,17 +417,20 @@ def assignments_deadline(message):
 @bot.message_handler(func=lambda message: message.text == "Next")
 def handle_next_button(message):
     user_id = str(message.from_user.id)
-    current_page = dl_user_data.get(user_id, 1)
-    dl_user_data[user_id] = current_page + 1
+    user_data = get_user_data(user_id)
+    current_page = user_data.get("current_page", 1)
+    user_data["current_page"] = current_page + 1
+    update_user_data(user_id, user_data)
     assignments_deadline(message)
 
-# To view previous page of deadlines (if len > 8)        
 @bot.message_handler(func=lambda message: message.text == "Previous")
 def handle_previous_button(message):
     user_id = str(message.from_user.id)
-    current_page = dl_user_data.get(user_id, 1)
-    dl_user_data[user_id] = current_page - 1
-    assignments_deadline(message)       
+    user_data = get_user_data(user_id)
+    current_page = user_data.get("current_page", 1)
+    user_data["current_page"] = current_page - 1
+    update_user_data(user_id, user_data)
+    assignments_deadline(message)
         
 @bot.message_handler(regexp="Manage Deadlines Data")
 def manage_deadlines_data(message):
@@ -372,7 +521,42 @@ def save_dl_details(message, dl_name, dl_datetime):
 
     bot.send_message(user_id, "Deadline added to your Assignment Deadlines!")
     assignments_deadline(message)
-        
+
+def auto_delete_assignment(user_id,title):
+    deadline_title = title
+    found = False
+
+    user_doc = db.collection("users").document(user_id)
+    dl_data_col = user_doc.collection("dl_data")
+
+    # Search for the deadline with the given title in dl_data collection
+    dl_data_query = dl_data_col.where("title", "==", deadline_title).limit(1).stream()
+
+    for doc in dl_data_query:
+        doc.reference.delete()
+        response = f"The deadline '{doc.get('title')}' has been deleted."
+        found = True
+        break
+
+    if not found:
+        cc_data_doc = user_doc.collection("CC_data").document("ics_data")
+        cc_data_snapshot = cc_data_doc.get()
+
+        if cc_data_snapshot.exists:
+            cc_data = cc_data_snapshot.to_dict().get("data", [])
+
+            # Search for the deadline with the given title in cc_data list
+            for deadline in cc_data:
+                if deadline.get('title') == deadline_title:
+                    cc_data.remove(deadline)
+                    found = True
+                    break
+
+            # Update the deadline data in Firestore
+            cc_data_doc.set({"data": cc_data}, merge=True)
+    
+
+
 #To delete deadlines        
 @bot.message_handler(regexp="Delete Deadline")
 def delete_deadline(message):
@@ -397,7 +581,6 @@ def delete_deadline(message):
         bot.reply_to(message, response)
         assignments_deadline(message)
         
-   
 
 
 def delete_all_deadlines(message):
@@ -421,9 +604,12 @@ def delete_all_deadlines(message):
     bot.reply_to(message, response)
 
     # Reset the current page to 1
-    dl_user_data[user_id] = 1
+    user_data = get_user_data(user_id)
+    user_data["current_page"] = 1
+    update_user_data(user_id, user_data)
 
     assignments_deadline(message)
+
 
 def process_delete(message):
     user_id = str(message.from_user.id)
@@ -431,7 +617,7 @@ def process_delete(message):
 
     if text == 'back':
         assignments_deadline(message)
-    if text.lower() == 'delete_all_deadlines':
+    elif text.lower() == 'delete_all_deadlines':
         delete_all_deadlines(message)
     else:
         deadline_title = text
@@ -651,7 +837,7 @@ def prompt_calendar_data(message):
     state = {"user_doc": user_doc}
 
     # Check if .ics data exists
-    if user_doc.collection("CC_data").document("ics_data").get().exists:
+    if user_doc.collection("CC_data").document("ics_data").get().exists and len("CC_data") > 0:
         markup = ReplyKeyboardMarkup(row_width=2, one_time_keyboard=True)
         update_button = KeyboardButton("Update .ics data")
         delete_button = KeyboardButton("Delete .ics data")
@@ -702,7 +888,9 @@ def handle_existing_ics_data(message, state):
         markup.add(back_button)
 
         user_id = str(message.from_user.id)
-        dl_user_data[user_id] = 1
+        user_data = get_user_data(user_id)
+        user_data["current_page"] = 1
+        update_user_data(user_id, user_data)
     
         bot.send_message(message.chat.id, "Please select an option to update the calendar data:", reply_markup=markup)
         bot.register_next_step_handler(message, handle_update_calendar_data_input, state)
@@ -712,7 +900,9 @@ def handle_existing_ics_data(message, state):
 
         # Reset the current page to 1
         user_id = str(message.from_user.id)
-        dl_user_data[user_id] = 1
+        user_data = get_user_data(user_id)
+        user_data["current_page"] = 1
+        update_user_data(user_id, user_data)
 
         bot.send_message(message.chat.id, "The .ics data has been deleted.")
         assignments_deadline(message)
@@ -739,7 +929,9 @@ def handle_update_calendar_data_input(message, state):
 def handle_calendar_data_input(message, state):
     user_doc = state["user_doc"]
 
-    if message.text == "Upload .ics file":
+    if message.text == "Back":
+        assignments_deadline(message)
+    elif message.text == "Upload .ics file":
         bot.send_message(message.chat.id, "Please upload the .ics file.")
         bot.register_next_step_handler(message, handle_ics_file_upload, user_doc)
     elif message.text == "Provide .ics link":
@@ -776,6 +968,9 @@ def handle_ics_file_upload(message, user_doc):
 
 # Handler for processing the provided .ics link
 def handle_ics_link_input(message, user_doc):
+    if message.text == "Back":
+        assignments_deadline(message)
+        
     ics_link = message.text.strip()
 
     # Process the .ics file data from the link
@@ -1071,7 +1266,8 @@ def process_delete_event(message, event_docs):
 
 # FUNCTION (3) School Timetable
 
-def choice3( message, userid ):
+########## FUNCTION TO DIRECT USER BASED ON OPTION SELECTED IN EXAM TIMETABLE ##########
+def choice3( message, userid ): # Choice options for School Timetable function
     option = message.text
     if option == "Add module":
         go_to_addmodule( message, userid )
@@ -1080,6 +1276,18 @@ def choice3( message, userid ):
     elif option == "Return to Main":
         main( message )
 
+def choice3a( message, userid, unconfigured_list ): 
+    option = message.text
+    if option == "Configure lessons":
+        prompt_config_lesson( message, userid, unconfigured_list )
+    elif option == "Unconfigure lessons":
+        prompt_unconfig( message, userid )
+    elif option == "Ignore and proceed to view school timetable":
+        view_timetable( message, userid )
+    elif option == "Return to Main":
+        main( message )
+
+########## FUNCTION TO PROMPT USER TO CONFIG/UNCONFIG LESSON/VIEW TT ##########
 def school_timetable( message, userid ):
     doc_ref = db.collection( "users" ).document( userid ).collection( "all_mods" ).document( "all_mods" ) # Reference to check if User's mods are configured / If User has any modules
     doc = doc_ref.get().to_dict() # Dictionary containing all of User's mods, can be empty
@@ -1097,15 +1305,16 @@ def school_timetable( message, userid ):
                     unconfigured += f'{doc2.id} \n\n'
                     unconfigured_list.append( doc2.id )
         if unconfigured == "": # If all User's lessons are configured, proceed to view timetable
-             view_timetable( message )
+             view_timetable( message, userid )
         else: # If User has unconfigured lessons, can choose to configure, ignore and proceed to view, or return to main
             button1 = telebot.types.KeyboardButton( "Configure lessons" )
-            button2 = telebot.types.KeyboardButton( "Ignore and proceed to view school timetable" )
-            button3 = telebot.types.KeyboardButton( "Return to Main" )
+            button2 = telebot.types.KeyboardButton( "Unconfigure lessons" )
+            button3 = telebot.types.KeyboardButton( "Ignore and proceed to view school timetable" )
+            button4 = telebot.types.KeyboardButton( "Return to Main" )
             markup = telebot.types.ReplyKeyboardMarkup( resize_keyboard = True, one_time_keyboard = True )
-            markup.add( button1 ).add( button2 ).add( button3 )
+            markup.add( button1 ).add( button2 ).add( button3 ).add( button4 )
             bot.send_message( int(userid), "You have not configured the timings for these lessons. Would you like to configure them now? The lesson slot numbers are required.\n\n" + unconfigured, reply_markup = markup )
-            bot.register_next_step_handler( message, prompt_config_lesson, unconfigured_list )
+            bot.register_next_step_handler( message, choice3a, userid, unconfigured_list )
     else: # If User has no mods
         button1 = telebot.types.KeyboardButton( "Add modules" )
         button2 = telebot.types.KeyboardButton( "Return to Main" )
@@ -1114,31 +1323,27 @@ def school_timetable( message, userid ):
         bot.send_message( int(userid), "You have no modules, please proceed to add modules.",reply_markup = markup )
         bot.register_next_step_handler( message, choice3, userid ) # Next step based on User's choice
 
-def prompt_config_lesson( message, unconfigured_list ):
-    if message.text == "Configure lessons":
-        markup = telebot.types.ReplyKeyboardMarkup( resize_keyboard = True, one_time_keyboard = True )
-        for item in unconfigured_list:
-            button = telebot.types.KeyboardButton( item )
-            markup.add( button )
-        bot.send_message( message.chat.id, "Which lesson would you like to configure?", reply_markup = markup )
-        bot.register_next_step_handler( message, config_lesson1, unconfigured_list )
-    elif message.text == "Ignore and proceed to view school timetable":
-        view_timetable( message )
-    elif message.text == "Return to Main":
-        main( message )
+########## FUNCTION TO SELECT LESSON TO CONFIGURE ##########
+def prompt_config_lesson( message, userid, unconfigured_list ):
+    markup = telebot.types.ReplyKeyboardMarkup( resize_keyboard = True, one_time_keyboard = True )
+    for item in unconfigured_list:
+        button = telebot.types.KeyboardButton( item )
+        markup.add( button )
+    bot.send_message( int(userid), "Which lesson would you like to configure?", reply_markup = markup )
+    bot.register_next_step_handler( message, config_lesson1, userid, unconfigured_list )
 
-def config_lesson1( message, unconfigured_list ):
-    userid = str( message.chat.id )
+########## FUNCTION TO CONFIGURE LESSON (1) ##########
+def config_lesson1( message, userid, unconfigured_list ):
     lesson = message.text
     if lesson in unconfigured_list:
-        bot.send_message( message.chat.id, f'What is your lesson slot number for {lesson}? \n\nFor lectures/tutorials with only one slot, please key in 1. Otherwise, please key in your allocated slot number. \n\nFor odd/even lessons, please key in the full lesson slot number as seen on NUSMods. For example: \nE23, D09, E9 etc. \n\nFor all other lessons, please key in the numbers only. For example: \nSEC-09 will be 09.' )
-        bot.register_next_step_handler( message, config_lesson2, lesson )
+        bot.send_message( int(userid), f'What is your lesson slot number for {lesson}? \n\nFor lectures/tutorials with only one slot, please key in 1. Otherwise, please key in your allocated slot number. \n\nFor odd/even lessons, please key in the full lesson slot number as seen on NUSMods. For example: \nE23, D09, E9 etc. \n\nFor all other lessons, please key in the numbers only. For example: \nSEC-09 will be 09.' )
+        bot.register_next_step_handler( message, config_lesson2, userid, lesson )
     else:
         bot.send_message( message.chat.id, "That is an invalid lesson. Please try again.")
         school_timetable( message, userid )
 
-def config_lesson2( message, lesson ):
-    userid = str(message.chat.id)
+########## FUNCTION TO CONFIGURE LESSON (2) ##########
+def config_lesson2( message, userid, lesson ):
     lesson_list = lesson.split( maxsplit = 1 )
     mod_code, lesson_type = lesson_list[0], lesson_list[1]
     lesson_no = message.text.upper()
@@ -1161,66 +1366,125 @@ def config_lesson2( message, lesson ):
         bot.send_message( int(userid), "Your lesson slot could not be found. Please return to School Timetable to try again. If error persists, kindly feedback this issue to us via the Main menu, thank you!", reply_markup = markup )
         bot.register_next_step_handler( message, choice3, userid )
 
-########## DATE FOR TESTING ##########
-test_date = datetime( 2023, 2, 6 )
-
-def view_timetable( message ):
-    userid = str( message.chat.id )
-    week_no = math.floor(((test_date - sem_start).days)/7 + 1) # The current week number
-    week_ref = db.collection( "users" ).document( userid ).collection( "timetable" ).document( "this_week" )
-    this_week = week_ref.get().to_dict()
-    if str(week_no) not in this_week: # If this week's timetable does not match with current week's number
-        bot.send_message( int(userid) , f"Please hold on while I generate your timetable for week {week_no}, thank you!" )
-        lesson_list = []
-        mods = db.collection( "users" ).document( userid ).collection( "mods" ).stream()
-        for mod in mods:
-            lesson_types = db.collection( "users" ).document( userid ).collection( "mods" ).document( mod.id ).collection( "lessons" ).stream()
-            for lesson in lesson_types:
-                slots = db.collection( "users" ).document( userid ).collection( "mods" ).document( mod.id ).collection( "lessons" ).document( lesson.id ).get().to_dict()
-                if slots["config"]:
-                    for slot in slots["timings"]:
-                        if week_no in slot["weeks"]:
-                            slot[ "name" ] = lesson.id
-                            lesson_list.append( slot )
-        db.collection( "users" ).document( userid ).collection( "timetable" ).document( "this_week" ).set( { str(week_no) : lesson_list } )
-        view_timetable( message )
+########## FUNCTION TO SELECT LESSON TO UNCONFIGURE ##########
+def prompt_unconfig( message, userid ):
+    mods = db.collection( "users" ).document( userid ).collection( "mods" ).stream()
+    configlist = []
+    for mod in mods:
+        lessons = db.collection( "users" ).document( userid ).collection( "mods" ).document( mod.id ).collection( "lessons" ).stream()
+        for lesson in lessons:
+            lesson_status = db.collection( "users" ).document( userid ).collection( "mods" ).document( mod.id ).collection( "lessons" ).document( lesson.id ).get().to_dict()[ "config" ]
+            if lesson_status:
+                configlist.append( lesson.id )
+    if not configlist:
+        bot.send_message( int(userid), "You have no configured lessons, please proceed to configure them." )
+        school_timetable( message, userid )
     else:
-        bot.send_message( int(userid), f"Please wait while we fetch your timetable for week {week_no}, thank you!" )
-        tt_ref = db.collection( "users" ).document( userid ).collection( "timetable" ).document( "this_week" )
-        tt = tt_ref.get().to_dict()
-        for lesson in tt[str(week_no)]:
-            day = lesson["day"]
-            if days.index( day ) < test_date.weekday():
-                tt_ref.update( { str(week_no) : firestore.ArrayRemove( [lesson] ) } )
-        tt_list = []
-        for lesson in tt[str(week_no)]:
-            tt_list.append( lesson )
-        tt_dic = {}
-        for lesson in tt_list:
-            if lesson['day'] not in tt_dic:
-                tt_dic[ lesson['day'] ] = [ lesson ]
-            else:
-                tt_dic[ lesson['day'] ].append( lesson )
-        for day in tt_dic:
-            tt_dic[day] = sorted( tt_dic[day], key = lambda x: x["startTime"] )
-        tt_days = sorted( tt_dic, key = lambda x: days.index(x) ) # Sorted list of dictionary keys
-        text = ""
-        for day in tt_days:
-            text += day.upper() + "\n\n"
-            for lesson in tt_dic[day]:
-                text += f'{lesson["name"]}\nStart: {lesson["startTime"]}\nEnd: {lesson["endTime"]}\nVenue: {lesson["venue"]}\n\n'
-            text += "\n"
-        if text == "":
-            bot.send_message( int(userid) , f"You have no more lessons for week {week_no}. Have a good rest!" )
-            main( message )
-        else:
-            button1 = telebot.types.KeyboardButton( "Return to Main" )
-            markup = telebot.types.ReplyKeyboardMarkup( resize_keyboard = True, one_time_keyboard = True )
-            markup.add( button1 )
-            bot.send_message( int(userid), f"Here is your time table for week {week_no}!" )
-            bot.send_message( int(userid), text, reply_markup = markup )
-            bot.register_next_step_handler( message, choice3, userid )
+        markup = telebot.types.ReplyKeyboardMarkup( resize_keyboard = True, one_time_keyboard = True )
+        for lesson in configlist:
+            button = telebot.types.KeyboardButton( lesson )
+            markup.add( button )
+        bot.send_message( int(userid), "Which lesson would you like to unconfigure?", reply_markup = markup )
+        bot.register_next_step_handler( message, unconfig, userid )
 
+########## FUNCTION TO UNCONFIGURE LESSON ##########
+def unconfig( message, userid ):
+    dummy = message.text.split( maxsplit = 1 )
+    mod_code = dummy[0]
+    db.collection( "users" ).document( userid ).collection( "mods" ).document( mod_code ).collection( "lessons" ).document( message.text ).set( {"config": False} )
+    regenerate( message )
+    bot.send_message( int(userid), f"{message.text} has been unconfigured!" )
+    school_timetable( message, userid )
+
+########## DATE FOR TESTING ##########
+test_date = datetime( 2023, 2, 28 )
+######################################
+
+########## FUNCTION TO VIEW TIMETABLE ##########
+def view_timetable( message, userid ):
+    if recess_start < test_date < recess_end:
+        button = telebot.types.KeyboardButton( "Return to Main")
+        markup = telebot.types.ReplyKeyboardMarkup( resize_keyboard = True, one_time_keyboard = True )
+        markup.add( button )
+        bot.send_message( int(userid), "It is recess week, have a good rest! :)", reply_markup = markup )
+    elif read_start < test_date < read_end:
+        button = telebot.types.KeyboardButton( "Return to Main")
+        markup = telebot.types.ReplyKeyboardMarkup( resize_keyboard = True, one_time_keyboard = True )
+        markup.add( button )
+        bot.send_message( int(userid), "It is reading week, have a good rest! :)", reply_markup = markup )
+    elif read_end < test_date:
+        button = telebot.types.KeyboardButton( "Return to Main")
+        markup = telebot.types.ReplyKeyboardMarkup( resize_keyboard = True, one_time_keyboard = True )
+        markup.add( button )
+        bot.send_message( int(userid), "You have no more classes, all the best for your exams!", reply_markup = markup )
+    elif sem_end < test_date:
+        button = telebot.types.KeyboardButton( "Return to Main")
+        markup = telebot.types.ReplyKeyboardMarkup( resize_keyboard = True, one_time_keyboard = True )
+        markup.add( button )
+        bot.send_message( int(userid), "The semester has ended, have a good break! :)", reply_markup = markup )
+    else:
+        week_no = math.floor(((test_date - sem_start).days)/7 + 1) # The current week number
+        if recess_end < test_date:
+            week_no -= 1
+        week_ref = db.collection( "users" ).document( userid ).collection( "timetable" ).document( "this_week" )
+        this_week = week_ref.get().to_dict()
+        if str(week_no) not in this_week: # If this week's timetable does not match with current week's number
+            bot.send_message( int(userid) , f"Please hold on while I generate your timetable for week {week_no}, thank you!" )
+            lesson_list = []
+            mods = db.collection( "users" ).document( userid ).collection( "mods" ).stream()
+            for mod in mods:
+                lesson_types = db.collection( "users" ).document( userid ).collection( "mods" ).document( mod.id ).collection( "lessons" ).stream()
+                for lesson in lesson_types:
+                    slots = db.collection( "users" ).document( userid ).collection( "mods" ).document( mod.id ).collection( "lessons" ).document( lesson.id ).get().to_dict()
+                    if slots["config"]:
+                        for slot in slots["timings"]:
+                            if week_no in slot["weeks"]:
+                                slot[ "name" ] = lesson.id
+                                lesson_list.append( slot )
+            db.collection( "users" ).document( userid ).collection( "timetable" ).document( "this_week" ).set( { str(week_no) : lesson_list } )
+            view_timetable( message, userid )
+        else:
+            bot.send_message( int(userid), f"Please hold on while I fetch your timetable for week {week_no}, thank you!" )
+            tt_ref = db.collection( "users" ).document( userid ).collection( "timetable" ).document( "this_week" )
+            tt = tt_ref.get().to_dict()
+            for lesson in tt[str(week_no)]:
+                day = lesson["day"]
+                if days.index( day ) < test_date.weekday():
+                    tt_ref.update( { str(week_no) : firestore.ArrayRemove( [lesson] ) } )
+            upd_tt = db.collection( "users" ).document( userid ).collection( "timetable" ).document( "this_week" ).get().to_dict()
+            tt_list = []
+            for lesson in upd_tt[str(week_no)]:
+                tt_list.append( lesson )
+            tt_dic = {}
+            for lesson in tt_list:
+                if lesson['day'] not in tt_dic:
+                    tt_dic[ lesson['day'] ] = [ lesson ]
+                else:
+                    tt_dic[ lesson['day'] ].append( lesson )
+            for day in tt_dic:
+                tt_dic[day] = sorted( tt_dic[day], key = lambda x: x["startTime"] )
+            tt_days = sorted( tt_dic, key = lambda x: days.index(x) ) # Sorted list of dictionary keys
+            text = ""
+            for day in tt_days:
+                days_passed = (week_no-1)*7 + days.index( day )
+                date = (sem_start + timedelta( days = days_passed )).strftime( "%d/%m/%Y" )
+                text += f"{day.upper()}, {date}\n\n"
+                for lesson in tt_dic[day]:
+                    text += f'{lesson["name"]}\nStart: {lesson["startTime"]}\nEnd: {lesson["endTime"]}\nVenue: {lesson["venue"]}\n\n'
+                text += "\n"
+            if text == "":
+                bot.send_message( int(userid) , f"You have no more lessons for week {week_no}. Have a good rest!" )
+                main( message )
+            else:
+                button1 = telebot.types.KeyboardButton( "Unconfigure lessons" )
+                button2 = telebot.types.KeyboardButton( "Return to Main" )
+                markup = telebot.types.ReplyKeyboardMarkup( resize_keyboard = True, one_time_keyboard = True )
+                markup.add( button1 ).add( button2 )
+                bot.send_message( int(userid), f"Here is your time table for week {week_no}!" )
+                bot.send_message( int(userid), text, reply_markup = markup )
+                bot.register_next_step_handler( message, choice3a, userid, None )
+
+########## FUNCTION TO RESTART WEEKLY TIMETABLE ##########
 def regenerate( message ):
     userid = str( message.chat.id )
     db.collection( "users" ).document( userid ).collection( "timetable" ).document( "this_week" ).set({})
@@ -1231,6 +1495,7 @@ def regenerate( message ):
 
 # FUNCTION (4) Exam Timetable
 
+########## FUNCTION TO DIRECT USER BASED ON OPTION SELECTED IN EXAM TIMETABLE ##########
 def choice4( message, userid ):
     option = message.text
     if option == "Add module":
@@ -1240,21 +1505,38 @@ def choice4( message, userid ):
     elif option == "Return to Main":
         main( message )
 
+########## VIEW EXAM FUNCTION ##########
 def view_exams( message, userid ):
     doc_ref = db.collection( "users" ).document( userid ).collection( "exam" ).document( "timings" )
     doc = doc_ref.get().to_dict() # Returns a dictionary where the keys are module codes and items are the respective exam timings. Can be empty
     output = ""
+    exam_list = []
     for mod_code in doc:
-        date = doc[mod_code][0] # Date of exam
+        exam_list.append( mod_code )
+    exam_list = sorted( exam_list, key = lambda x: doc[x][0][5:7] )
+    for mod_code in exam_list:
+        dd = doc[mod_code][0][8:10] # Day of exam
+        mm = doc[mod_code][0][5:7]
+        yy = doc[mod_code][0][:4]
+        date = f'{dd}/{mm}/{yy}'
         duration = doc[mod_code][1] # Duration of exam
-        output += f'{mod_code} Finals\nDate: { date }\nDuration: { duration } minutes\n\n'
-    if output == "": # If the User does not have any exams ( No modules added )
-        button1 = telebot.types.KeyboardButton( "Add module" )
-        button2 = telebot.types.KeyboardButton( "Return to Main" )
-        markup = telebot.types.ReplyKeyboardMarkup( resize_keyboard = True, one_time_keyboard = True )
-        markup.add( button1 ).add( button2 )
-        bot.send_message( int(userid), "You have no modules, please proceed to add modules.", reply_markup = markup )
-        bot.register_next_step_handler( message, choice4, userid ) # Next step based on User's choice
+        cd = (datetime( int(yy), int(mm), int(dd) ) - test_date).days
+        if cd >= 0:
+            output += f'{mod_code} Finals\nDate: { date }\nDuration: { duration } minutes\nCountdown: {cd} days\n\n'
+    if output == "": # If the User does not have any exams
+        all_mods = db.collection( "users" ).document( userid ).collection( "all_mods" ).document( "all_mods" ).get().to_dict()
+        if len( all_mods ) > 0:
+            button = telebot.types.KeyboardButton( "Return to Main" )
+            markup = telebot.types.ReplyKeyboardMarkup( resize_keyboard = True, one_time_keyboard = True )
+            markup.add(button)
+            bot.send_message( int(userid), "You have no examinations! :)", reply_markup = markup )
+        else:
+            button1 = telebot.types.KeyboardButton( "Add module" )
+            button2 = telebot.types.KeyboardButton( "Return to Main" )
+            markup = telebot.types.ReplyKeyboardMarkup( resize_keyboard = True, one_time_keyboard = True )
+            markup.add( button1 ).add( button2 )
+            bot.send_message( int(userid), "You have no modules, please proceed to add modules.", reply_markup = markup )
+            bot.register_next_step_handler( message, choice4, userid ) # Next step based on User's choice
     else:
         button1 = telebot.types.KeyboardButton( "Add module" )
         button2 = telebot.types.KeyboardButton( "Delete module" )
@@ -1272,9 +1554,9 @@ def view_exams( message, userid ):
 # FUNCTIONS (5) View Modules, Add module, and Delete module
 
 ########## HELPER FUNCTION FOR ADDING EXAM TIMING, TO BE USED IN ADD MODULE ##########
-def add_exam( userid, mod_code ):
+def add_exam( userid, mod_code, sem ):
     mod_details_req = requests.get( mod_details_end.replace( replace_ay, ay ).replace( replace_mod, mod_code ) )
-    mod_details = mod_details_req.json()['semesterData'][semester]
+    mod_details = mod_details_req.json()['semesterData'][sem]
     if 'examDate' in mod_details:
         db.collection( "users" ).document( userid ).collection( "exam" ).document( "timings" ).update( { mod_code : [ mod_details['examDate'], mod_details['examDuration'] ] } )
 
@@ -1283,19 +1565,19 @@ def remove_exam( userid, mod_code ):
     db.collection( "users" ).document( userid ).collection( "exam" ).document( "timings" ).update( { mod_code : firestore.DELETE_FIELD} )
 
 ########## FUNCTION TO DIRECT USER BASED ON OPTION SELECTED IN VIEW MODULES ##########
-def choice5( text, userid ):
-    option = text.text
+def choice5( message, userid ):
+    option = message.text
     if option == "Add module":
-        go_to_addmodule( text, userid )
+        go_to_addmodule( message, userid )
     elif option == "Delete module":
-        go_delete_module( text, userid )
+        go_delete_module( message, userid )
     elif option == "View modules":
-        view_modules( text, userid )
+        view_modules( message, userid )
     elif option == "Return to Main":
-        main( text )
+        main( message )
 
 ########## VIEW MODULES FUNCTION ##########
-def view_modules( text, userid ):
+def view_modules( message, userid ):
     doc_ref = db.collection( "users" ).document( userid ).collection( "all_mods" ).document( "all_mods" ) # Reference to check if User has any modules to view
     doc = doc_ref.get().to_dict() # Dictionary of all User's modules, can be empty
     if len(doc) > 0: # If the User has modules to view
@@ -1309,22 +1591,22 @@ def view_modules( text, userid ):
         markup = telebot.types.ReplyKeyboardMarkup( resize_keyboard = True, one_time_keyboard = True ) # Reply message with options to procede
         markup.add( button1 ).add( button2 ).add( button3 )
         bot.send_message( int(userid), "What would you like to do?" , reply_markup = markup )
-        bot.register_next_step_handler( text, choice5, userid ) # Next step based on User's choice
+        bot.register_next_step_handler( message, choice5, userid ) # Next step based on User's choice
     else: # If the User has no modules to view
         button1 = telebot.types.KeyboardButton( "Add module" )
         button2 = telebot.types.KeyboardButton( "Return to Main" )
         markup = telebot.types.ReplyKeyboardMarkup( resize_keyboard = True, one_time_keyboard = True )
         markup.add(button1).add(button2)
         bot.send_message( int(userid), "You have no modules, please proceed to add modules.", reply_markup = markup ) # Reply message with options to procede
-        bot.register_next_step_handler( text, choice5, userid ) # Next step based on User's choice
+        bot.register_next_step_handler( message, choice5, userid ) # Next step based on User's choice
         
 ########## ADD MODULE FUNCTION ##########
-def go_to_addmodule( text, userid ):
+def go_to_addmodule( message, userid ):
     bot.send_message( userid, "Please enter the module code." )
-    bot.register_next_step_handler( text, add_module, userid )
+    bot.register_next_step_handler( message, add_module, userid )
 
-def add_module( text, userid ):
-    formtext = text.text.upper() # Proper format of module code
+def add_module( message, userid ):
+    formtext = message.text.upper() # Proper format of module code
     if formtext in modcodes: # If the input module is a valid module code
         doc_ref = db.collection( "users" ).document( userid ).collection( "all_mods" ).document( "all_mods" ) # Reference to check if input module is in DB
         doc = doc_ref.get().to_dict() # Dictionary of all User's modules, can be empty
@@ -1336,16 +1618,27 @@ def add_module( text, userid ):
             mod_details_req = requests.get( mod_details_end.replace( replace_ay, ay ).replace( replace_mod, formtext ) ) # API request for details of input module
             mod_details = mod_details_req.json() # All details for input module
             title = mod_details["title"] # Title of module
-            mod_tt = mod_details["semesterData"][semester]['timetable'] # All lesson types and slots of the module for the current semester
-            mod_lesson_types = []
-            for i in mod_tt: # mod_lesson_types will be a List of the different lesson types at the end of this For loop
-                if i[ "lessonType" ] not in mod_lesson_types:
-                    mod_lesson_types.append( i["lessonType"] )
-            db.collection( "users" ).document( userid ).collection( "all_mods" ).document( "all_mods" ).set( {formtext: title }, merge = True ) # Add module code and title to all_mods document
-            for i in mod_lesson_types: # In the new module document, create a new collection and in this collection, create documents for each lesson type to store timings and venues in the future
-                db.collection( "users" ).document( userid ).collection( "mods" ).document( formtext ).collection( "lessons" ).document( f'{formtext} {i}' ).set( {"config" : False} ) # Create document for each lesson type input module has
-            add_exam( userid, formtext ) # Using helper function to add exam timing for input module to DB
-            bot.send_message( int(userid), "Ok, I have added " + formtext + ": " + title + ", to your modules." ) # Reply message
+            try:
+                mod_sem = mod_details['semesterData'][semester]['semester']
+                mod_tt = mod_details['semesterData'][semester]['timetable']
+            except:
+                mod_sem = mod_details['semesterData'][0]['semester']
+                mod_tt = mod_details['semesterData'][0]['timetable']
+            if mod_sem == semester+1:
+                mod_lesson_types = []
+                for i in mod_tt: # mod_lesson_types will be a List of the different lesson types at the end of this For loop
+                    if i[ "lessonType" ] not in mod_lesson_types:
+                        mod_lesson_types.append( i["lessonType"] )
+                db.collection( "users" ).document( userid ).collection( "all_mods" ).document( "all_mods" ).set( {formtext: title }, merge = True ) # Add module code and title to all_mods document
+                for i in mod_lesson_types: # In the new module document, create a new collection and in this collection, create documents for each lesson type to store timings and venues in the future
+                    db.collection( "users" ).document( userid ).collection( "mods" ).document( formtext ).collection( "lessons" ).document( f'{formtext} {i}' ).set( {"config" : False} ) # Create document for each lesson type input module has
+                try:
+                    add_exam( userid, formtext, semester ) # Using helper function to add exam timing for input module to DB
+                except:
+                    add_exam( userid, formtext, 0)
+                bot.send_message( int(userid), "Ok, I have added " + formtext + ": " + title + ", to your modules." ) # Reply message
+            else:
+                bot.send_message( int(userid), f"{formtext}: {title}, is not available in Semester {mod_sem}." )
         button1 = telebot.types.KeyboardButton( "View modules" )
         button2 = telebot.types.KeyboardButton( "Add module" )
         button3 = telebot.types.KeyboardButton( "Delete module" )
@@ -1353,13 +1646,13 @@ def add_module( text, userid ):
         markup = telebot.types.ReplyKeyboardMarkup( resize_keyboard = True, one_time_keyboard = True )
         markup.add( button1 ).add( button2 ).add( button3 ).add( button4 )
         bot.send_message( int(userid), "What would you like to do?" , reply_markup = markup ) # Reply message with options to procede
-        bot.register_next_step_handler( text, choice5, userid ) # Next step based on User's choice
+        bot.register_next_step_handler( message, choice5, userid ) # Next step based on User's choice
     else: # Input module is an invalid module code
         bot.send_message( int(userid), "That is an invalid module code, please try again." )
-        view_modules( text, userid ) # Prompt User to add module again
+        view_modules( message, userid ) # Prompt User to add module again
 
 ########## DELETE MODULE FUNCTION ##########
-def go_delete_module( text, userid ):
+def go_delete_module( message, userid ):
     doc_ref = db.collection( "users" ).document( userid ).collection( "all_mods" ).document( "all_mods" ) # Reference to check if User has any modules to delete
     doc = doc_ref.get().to_dict() # Dictionary of all User's modules, can be empty
     if len(doc) > 0: # If User has modules to delete
@@ -1370,24 +1663,25 @@ def go_delete_module( text, userid ):
         button = telebot.types.KeyboardButton( "Return to Main" )
         markup.add( button )
         bot.send_message( int(userid), "What would you like to do?", reply_markup = markup ) # Reply with options on what to delete, or Return to Main
-        bot.register_next_step_handler( text, delete_module, userid ) # Next step based on User's choice
+        bot.register_next_step_handler( message, delete_module, userid ) # Next step based on User's choice
     else: # User has no modules to delete
         button1 = telebot.types.KeyboardButton( "Add module" )
         button2 = telebot.types.KeyboardButton( "Return to Main" )
         markup = telebot.types.ReplyKeyboardMarkup( resize_keyboard = True, one_time_keyboard = True )
         markup.add( button1 ).add( button2 )
         bot.send_message( int(userid), "You have no modules, please procede to add modules.", reply_markup = markup ) # Reply with options to Add module or Return to Main
-        bot.register_next_step_handler( text, choice5, userid ) # Next step based on User's choice
+        bot.register_next_step_handler( message, choice5, userid ) # Next step based on User's choice
 
-def delete_module( text, userid ):
-    option = text.text
+def delete_module( message, userid ):
+    option = message.text
     if option == "Return to Main":
-        main( text )
+        main( message )
     else:
-        mod_to_delete = text.text[ 7: ] # Module code of module to delete, in  proper format
+        mod_to_delete = message.text[ 7: ] # Module code of module to delete, in  proper format
         title = db.collection( "users" ).document( userid ).collection( "all_mods" ).document( "all_mods" ).get().to_dict()[ mod_to_delete ] # Title of module
         db.collection( "users" ).document( userid ).collection( "mods" ).document( mod_to_delete ).delete()
         db.collection( "users" ).document( userid ).collection( "all_mods" ).document( "all_mods" ).update( { mod_to_delete : firestore.DELETE_FIELD } )
+        regenerate( message )
         remove_exam( userid, mod_to_delete )
         button1 = telebot.types.KeyboardButton( "View modules" )
         button2 = telebot.types.KeyboardButton( "Add module" )
@@ -1397,7 +1691,7 @@ def delete_module( text, userid ):
         markup.add( button1 ).add( button2 ).add( button3 ).add( button4 )
         bot.send_message( int(userid), mod_to_delete + ": " + title + ", has been deleted from your modules." ) # Reply message
         bot.send_message( int(userid), "What would you like to do?", reply_markup = markup ) # Reply message with options to procede
-        bot.register_next_step_handler( text, choice5, userid ) # Next step based on User's choice
+        bot.register_next_step_handler( message, choice5, userid ) # Next step based on User's choice
 
 
 # END OF FUNCTIONS (5) View Modules, Add module and Delete module
@@ -1873,7 +2167,6 @@ def update_issue_notes(issue):
 
 
 
-
 ###################################################################################################################################
 ##### PLEASE ENSURE THIS STAYS AT THE BOTTOM OR FUNCTIONS WILL BREAK! #####
 ##### INVALID TEXT FUNCTION #####
@@ -1882,8 +2175,21 @@ def invalid_text( text ):
     bot.send_message( text.chat.id, "Invalid entry, you will be returned to the Main Menu." )
     main( text )
     
+""" def send_restart_instructions():
+    all_user_ids = get_all_user_ids()
+    for user_id in all_user_ids:
+        restart_message = "The server has restarted. To reinitialize the bot functionality, please send the /start command."
+        bot.send_message(user_id, restart_message) """
+        
+#Implement this only when the server is active, if not local testing is just spam fest to all users
 
-bot.infinity_polling()
+def start_bot():
+    # Send restart instructions to users
+    """ send_restart_instructions() """
+    # Start the infinite polling
+    bot.infinity_polling()
+    
+start_bot()
 
 ##### PLEASE ENSURE THIS STAYS AT THE BOTTOM OR FUNCTIONS WILL BREAK! #####
 ###################################################################################################################################
