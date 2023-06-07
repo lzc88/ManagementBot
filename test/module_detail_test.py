@@ -16,8 +16,8 @@ replace2 = "{moduleCode}"
 mods_basic_end = os.getenv( "allmods" )
 mod_details_end = os.getenv( "moddetails" )
 
-mod_details_req = requests.get( mod_details_end.replace( replace, "2022-2023" ).replace( replace2, "CS1010S") )
-mod_details = mod_details_req.json()["semesterData"][semester]
+mod_details_req = requests.get( mod_details_end.replace( replace, "2022-2023" ).replace( replace2, "FIN3703B") )
+mod_details = mod_details_req.json()["semesterData"]
 
 unique_lesson_types = []
 for i in mod_details:
