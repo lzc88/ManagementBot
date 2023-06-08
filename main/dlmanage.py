@@ -12,6 +12,8 @@ from datetime import datetime
 from datetime import timedelta
 import time
 import icalendar
+import re
+import threading
 import pytz
 import math
 
@@ -19,13 +21,30 @@ import math
 dotenv.load_dotenv( dotenv_path = "config\.env" )
 
 ########## CREATING BOT INSTANCE ##########
-bottoken = os.getenv("bottoken")
+""" bottoken = os.getenv("bottoken") """
+bottoken = "6250045869:AAFzbpqRpxTfehyMOK5RHPgheiLLzBruAfk"
 bot = telebot.TeleBot(bottoken)
 
 ########## INITIALISE DB ##########
 cred = firebase_admin.credentials.Certificate("config\managementbot-72f56-firebase-adminsdk-7fs64-3c7bb1c603.json")
 dbapp = firebase_admin.initialize_app( cred )
 db = firestore.client()
+
+########## Get all user_id ###############
+def get_all_user_ids():
+    user_ids = []
+
+    # Query the database to retrieve all user documents
+    users_collection = db.collection("users")
+    user_docs = users_collection.get()
+
+    # Extract user IDs from the documents
+    for doc in user_docs:
+        user_id = doc.id
+        user_ids.append(user_id)
+
+    return user_ids
+
 
 ########## ADMIN USER ID ########## **********Try to store this in the .env file so people won't see them
 approved_admins = ["966269150","291900788"]  
@@ -68,12 +87,28 @@ else:
 
 days = ["Monday","Tuesday","Wednesday","Thursday","Friday","Saturday","Sunday"]
 
+############ To store user data ############
+def get_user_data(user_id):
+    user_ref = db.collection("users").document(user_id)
+    user_doc = user_ref.get()
+
+    if user_doc.exists:
+        return user_doc.to_dict()
+    else:
+        return {}
+    
+def update_user_data(user_id, data):
+    user_ref = db.collection("users").document(user_id)
+    user_ref.set(data, merge=True)
+
+
+    
 ########## GENERATE A LIST OF MODULE CODES ##########
-mods_basic_req = requests.get( mods_basic_end.replace( replace_ay, ay ) )
+""" mods_basic_req = requests.get( mods_basic_end.replace( replace_ay, ay ) )
 mods_basic = mods_basic_req.json() # List of dictionaries, each dictionary represents a module
 modcodes = []
 for i in mods_basic:
-    modcodes.append( i["moduleCode"]) # List of all module codes
+    modcodes.append( i["moduleCode"]) # List of all module codes """
 
 ####################################################################################################
 
@@ -86,6 +121,13 @@ def choice( text, userid ):
         view_exams( text, userid )
     elif option == "School Timetable":
         school_timetable( text, userid )
+    elif option == "Assignments Deadlines":
+        assignments_deadline( text )
+    elif option == "Personal Planner":
+        personal_planner( text )
+    elif option == "Report Issues":
+        report_issues( text )
+        
 ### Add for your functions here ###
 
 ########### FUNCTN TO GREET USER ##########      
@@ -130,7 +172,9 @@ def start( startmessage ):
     doc_ref = db.collection( "users" ).document( userid ) # Reference to check if User exists in DB
     doc = doc_ref.get()
     if doc.exists: # True if User exists
-        main( startmessage ) # User is sent to the Main Menu
+        main(startmessage)
+        check_deadline_reminders(userid)
+        #check_pp_reminders(userid) #Implementing this next
     else: # If User is new
         data = { "username" : username } # Dictionary containing user's first name
         db.collection( "users" ).document( userid ).set( data ) # Create document for user with "data" as field
@@ -139,6 +183,7 @@ def start( startmessage ):
         db.collection( "users" ).document( userid ).collection( "exam" ).document( "timings" ).set({}) # Create timings document for User to be used later to add exam timings
         response = "Hello " + username +", I am ManagementBot. I hope to assist you in better planning your schedule! \n"
         response += "You can choose what you want to do by opening the keyboard buttons and selecting the relevant options."
+        check_deadline_reminders(userid)
         bot.send_message( int(userid), response )
         bot.send_message( int(userid), "Before we begin, what modules are you taking this semester?\n\n( Type and send module codes one at a time. Do wait for me to respond before sending another code! )" )
         go_to_addmodule( startmessage, userid )
@@ -184,11 +229,67 @@ def get_dl(user_id):
 
     return dl_data
 
-dl_user_data = {}
+def check_deadline_reminders(user_id):
+    last_reminder_timestamps = {}  # Dictionary to store the last reminder timestamp for each assignment
+
+    while True:
+        # Retrieve deadlines for the specific user
+        deadlines = get_dl(user_id)
+
+        # Check each deadline and send reminders if necessary
+        for deadline in deadlines:
+            if deadline['status'] == 'COMPLETED':
+                continue  # Skip completed assignments
+
+            title = deadline['title']
+            due_date = datetime.strptime(deadline['due_date'], "%A, %d/%m/%y %H%Mhrs")
+            current_date = datetime.now()
+            time_remaining = due_date - current_date
+
+            if time_remaining.total_seconds() <= 0:
+                # Deadline has passed, send reminder if not already sent
+                if title not in last_reminder_timestamps or last_reminder_timestamps[title] != 'due':
+                    # Compose the reminder message
+                    reminder_message = f"Your assignment '{title}' is due. (Due date: {due_date})."
+                    bot.send_message(user_id, reminder_message)
+                    last_reminder_timestamps[title] = 'due'
+
+            elif time_remaining.total_seconds() <= 3600 and time_remaining.total_seconds() > 0:
+                # Send reminder if not already sent at this interval
+                if title not in last_reminder_timestamps or last_reminder_timestamps[title] != '1_hour':
+                    reminder_message = f"Your assignment '{title}' will be due in 1 hour. (Due date: {due_date}). Don't forget to submit it!"
+                    bot.send_message(user_id, reminder_message)
+                    last_reminder_timestamps[title] = '1_hour'
+
+            elif time_remaining.total_seconds() <= 6 * 3600 and time_remaining.total_seconds() > 0:
+                # Send reminder if not already sent at this interval
+                if title not in last_reminder_timestamps or last_reminder_timestamps[title] != '6_hours':
+                    reminder_message = f"Your assignment '{title}' will be due in 6 hours. (Due date: {due_date}). Don't forget to finalize and submit your work!"
+                    bot.send_message(user_id, reminder_message)
+                    last_reminder_timestamps[title] = '6_hours'
+
+            elif time_remaining.total_seconds() <= 24 * 3600 and time_remaining.total_seconds() > 0:
+                # Send reminder if not already sent at this interval
+                if title not in last_reminder_timestamps or last_reminder_timestamps[title] != '24_hours':
+                    reminder_message = f"Your assignment '{title}' will be due in 24 hours. (Due date: {due_date}). Do begin on it if you haven't!"
+                    bot.send_message(user_id, reminder_message)
+                    last_reminder_timestamps[title] = '24_hours'
+
+            elif time_remaining.total_seconds() <= 24 * 3600 * 3 and time_remaining.total_seconds() > 0:
+                # Send reminder if not already sent at this interval
+                if title not in last_reminder_timestamps or last_reminder_timestamps[title] != '3_days':
+                    reminder_message = f"Your assignment '{title}' will be due in 3 days. (Due date: {due_date}). Do begin on it if you haven't!"
+                    bot.send_message(user_id, reminder_message)
+                    last_reminder_timestamps[title] = '3_days'
+
+        # Wait for 1 minute before checking deadlines again
+        time.sleep(60)
+    
 #Main function for Assignment Deadlines
 @bot.message_handler(regexp = "Assignments Deadlines")
 def assignments_deadline(message):
     user_id = str(message.from_user.id)
+    user_data = get_user_data(user_id)
     deadlines = get_dl(user_id)
 
     if deadlines:
@@ -196,11 +297,31 @@ def assignments_deadline(message):
         total_pages = (len(deadlines) + page_size - 1) // page_size
 
         # Retrieve the current page from user data (default to the first page)
-        current_page = dl_user_data.get(user_id, 1)
+        current_page = user_data.get("current_page", 1)
 
         # Calculate the start and end index for the current page
         start_index = (current_page - 1) * page_size
         end_index = start_index + page_size
+
+        # List to store titles of assignments to be deleted
+        assignments_to_delete = []
+
+        # Iterate through deadlines and check for assignments to be deleted
+        for assignment in deadlines:
+            due_date = datetime.strptime(assignment['due_date'], "%A, %d/%m/%y %H%Mhrs")
+            current_date = datetime.now()
+            time_remaining = due_date - current_date
+
+            # Check if the assignment is past due and due for more than 24 hours
+            if time_remaining.total_seconds() <= 0 and time_remaining.total_seconds() <= -24 * 3600:
+                assignments_to_delete.append(assignment['title'])
+
+        # Process the deletion of assignments
+        for title in assignments_to_delete:
+            auto_delete_assignment(user_id,title)
+
+        # Retrieve the updated deadlines after deletion
+        deadlines = get_dl(user_id)
 
         # Sort deadlines by due date
         sorted_deadlines = sorted(deadlines, key=lambda x: (x['status'] == 'COMPLETED', datetime.strptime(x['due_date'], "%A, %d/%m/%y %H%Mhrs")))
@@ -217,7 +338,15 @@ def assignments_deadline(message):
 
             # Check if the assignment is past due
             if time_remaining.total_seconds() <= 0:
-                time_left = "This Assignment is Dued"
+                # Check if the assignment is due (not completed)
+                if assignment['status'] != 'COMPLETED':
+                    # Check if the assignment is overdue by more than 24 hours
+                    if time_remaining.total_seconds() <= -24 * 3600:
+                        # Delete the assignment from cc_data and dl_data
+                        auto_delete_assignment(user_id, assignment['title'])
+                        continue  # Skip deleted assignment
+
+                time_left = "This Assignment is Due"
             else:
                 days_remaining = time_remaining.days
                 hours_remaining = time_remaining.seconds // 3600
@@ -229,7 +358,7 @@ def assignments_deadline(message):
                 elif time_remaining.total_seconds() > 0:
                     time_left = "You have less than an hour left!"
                 else:
-                    time_left = "This Assignment is Dued"
+                    time_left = "This Assignment is Due"
 
             day_of_week = due_date.strftime("%A")
             assignment_info = f"{index}) {assignment['title']}:\nDue date: {day_of_week}, {due_date.strftime('%d/%m/%y %H%Mhrs')}\nTime left: {time_left}\nStatus: {assignment['status']}\n\n"
@@ -266,7 +395,7 @@ def assignments_deadline(message):
         bot.send_message(message.chat.id, response, reply_markup=markup, parse_mode="HTML")
 
         # Update user data with the current page
-        dl_user_data[user_id] = current_page
+        update_user_data(user_id, {"current_page": current_page})
 
     else:
         response = "Your deadlines list is empty. Please add in deadlines to use this function.\n\n"
@@ -288,17 +417,20 @@ def assignments_deadline(message):
 @bot.message_handler(func=lambda message: message.text == "Next")
 def handle_next_button(message):
     user_id = str(message.from_user.id)
-    current_page = dl_user_data.get(user_id, 1)
-    dl_user_data[user_id] = current_page + 1
+    user_data = get_user_data(user_id)
+    current_page = user_data.get("current_page", 1)
+    user_data["current_page"] = current_page + 1
+    update_user_data(user_id, user_data)
     assignments_deadline(message)
 
-# To view previous page of deadlines (if len > 8)        
 @bot.message_handler(func=lambda message: message.text == "Previous")
 def handle_previous_button(message):
     user_id = str(message.from_user.id)
-    current_page = dl_user_data.get(user_id, 1)
-    dl_user_data[user_id] = current_page - 1
-    assignments_deadline(message)       
+    user_data = get_user_data(user_id)
+    current_page = user_data.get("current_page", 1)
+    user_data["current_page"] = current_page - 1
+    update_user_data(user_id, user_data)
+    assignments_deadline(message)
         
 @bot.message_handler(regexp="Manage Deadlines Data")
 def manage_deadlines_data(message):
@@ -389,7 +521,42 @@ def save_dl_details(message, dl_name, dl_datetime):
 
     bot.send_message(user_id, "Deadline added to your Assignment Deadlines!")
     assignments_deadline(message)
-        
+
+def auto_delete_assignment(user_id,title):
+    deadline_title = title
+    found = False
+
+    user_doc = db.collection("users").document(user_id)
+    dl_data_col = user_doc.collection("dl_data")
+
+    # Search for the deadline with the given title in dl_data collection
+    dl_data_query = dl_data_col.where("title", "==", deadline_title).limit(1).stream()
+
+    for doc in dl_data_query:
+        doc.reference.delete()
+        response = f"The deadline '{doc.get('title')}' has been deleted."
+        found = True
+        break
+
+    if not found:
+        cc_data_doc = user_doc.collection("CC_data").document("ics_data")
+        cc_data_snapshot = cc_data_doc.get()
+
+        if cc_data_snapshot.exists:
+            cc_data = cc_data_snapshot.to_dict().get("data", [])
+
+            # Search for the deadline with the given title in cc_data list
+            for deadline in cc_data:
+                if deadline.get('title') == deadline_title:
+                    cc_data.remove(deadline)
+                    found = True
+                    break
+
+            # Update the deadline data in Firestore
+            cc_data_doc.set({"data": cc_data}, merge=True)
+    
+
+
 #To delete deadlines        
 @bot.message_handler(regexp="Delete Deadline")
 def delete_deadline(message):
@@ -414,7 +581,6 @@ def delete_deadline(message):
         bot.reply_to(message, response)
         assignments_deadline(message)
         
-   
 
 
 def delete_all_deadlines(message):
@@ -438,9 +604,12 @@ def delete_all_deadlines(message):
     bot.reply_to(message, response)
 
     # Reset the current page to 1
-    dl_user_data[user_id] = 1
+    user_data = get_user_data(user_id)
+    user_data["current_page"] = 1
+    update_user_data(user_id, user_data)
 
     assignments_deadline(message)
+
 
 def process_delete(message):
     user_id = str(message.from_user.id)
@@ -448,7 +617,7 @@ def process_delete(message):
 
     if text == 'back':
         assignments_deadline(message)
-    if text.lower() == 'delete_all_deadlines':
+    elif text.lower() == 'delete_all_deadlines':
         delete_all_deadlines(message)
     else:
         deadline_title = text
@@ -668,7 +837,7 @@ def prompt_calendar_data(message):
     state = {"user_doc": user_doc}
 
     # Check if .ics data exists
-    if user_doc.collection("CC_data").document("ics_data").get().exists:
+    if user_doc.collection("CC_data").document("ics_data").get().exists and len("CC_data") > 0:
         markup = ReplyKeyboardMarkup(row_width=2, one_time_keyboard=True)
         update_button = KeyboardButton("Update .ics data")
         delete_button = KeyboardButton("Delete .ics data")
@@ -719,7 +888,9 @@ def handle_existing_ics_data(message, state):
         markup.add(back_button)
 
         user_id = str(message.from_user.id)
-        dl_user_data[user_id] = 1
+        user_data = get_user_data(user_id)
+        user_data["current_page"] = 1
+        update_user_data(user_id, user_data)
     
         bot.send_message(message.chat.id, "Please select an option to update the calendar data:", reply_markup=markup)
         bot.register_next_step_handler(message, handle_update_calendar_data_input, state)
@@ -729,7 +900,9 @@ def handle_existing_ics_data(message, state):
 
         # Reset the current page to 1
         user_id = str(message.from_user.id)
-        dl_user_data[user_id] = 1
+        user_data = get_user_data(user_id)
+        user_data["current_page"] = 1
+        update_user_data(user_id, user_data)
 
         bot.send_message(message.chat.id, "The .ics data has been deleted.")
         assignments_deadline(message)
@@ -756,7 +929,9 @@ def handle_update_calendar_data_input(message, state):
 def handle_calendar_data_input(message, state):
     user_doc = state["user_doc"]
 
-    if message.text == "Upload .ics file":
+    if message.text == "Back":
+        assignments_deadline(message)
+    elif message.text == "Upload .ics file":
         bot.send_message(message.chat.id, "Please upload the .ics file.")
         bot.register_next_step_handler(message, handle_ics_file_upload, user_doc)
     elif message.text == "Provide .ics link":
@@ -793,6 +968,9 @@ def handle_ics_file_upload(message, user_doc):
 
 # Handler for processing the provided .ics link
 def handle_ics_link_input(message, user_doc):
+    if message.text == "Back":
+        assignments_deadline(message)
+        
     ics_link = message.text.strip()
 
     # Process the .ics file data from the link
@@ -1995,7 +2173,6 @@ def update_issue_notes(issue):
 
 
 
-
 ###################################################################################################################################
 ##### PLEASE ENSURE THIS STAYS AT THE BOTTOM OR FUNCTIONS WILL BREAK! #####
 ##### INVALID TEXT FUNCTION #####
@@ -2004,8 +2181,21 @@ def invalid_text( text ):
     bot.send_message( text.chat.id, "Invalid entry, you will be returned to the Main Menu." )
     main( text )
     
+""" def send_restart_instructions():
+    all_user_ids = get_all_user_ids()
+    for user_id in all_user_ids:
+        restart_message = "The server has restarted. To reinitialize the bot functionality, please send the /start command."
+        bot.send_message(user_id, restart_message) """
+        
+#Implement this only when the server is active, if not local testing is just spam fest to all users
 
-bot.infinity_polling()
+def start_bot():
+    # Send restart instructions to users
+    """ send_restart_instructions() """
+    # Start the infinite polling
+    bot.infinity_polling()
+    
+start_bot()
 
 ##### PLEASE ENSURE THIS STAYS AT THE BOTTOM OR FUNCTIONS WILL BREAK! #####
 ###################################################################################################################################
