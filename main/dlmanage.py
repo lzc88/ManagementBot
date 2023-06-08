@@ -1329,44 +1329,50 @@ def choice4( message, userid ):
 
 ########## VIEW EXAM FUNCTION ##########
 def view_exams( message, userid ):
-    doc_ref = db.collection( "users" ).document( userid ).collection( "exam" ).document( "timings" )
-    doc = doc_ref.get().to_dict() # Returns a dictionary where the keys are module codes and items are the respective exam timings. Can be empty
-    output = ""
-    exam_list = []
-    for mod_code in doc:
-        exam_list.append( mod_code )
-    exam_list = sorted( exam_list, key = lambda x: doc[x][0][5:7] )
-    for mod_code in exam_list:
-        dd = doc[mod_code][0][8:10] # Day of exam
-        mm = doc[mod_code][0][5:7]
-        yy = doc[mod_code][0][:4]
-        date = f'{dd}/{mm}/{yy}'
-        duration = doc[mod_code][1] # Duration of exam
-        cd = (datetime( int(yy), int(mm), int(dd) ) - test_date).days
-        if cd >= 0:
-            output += f'{mod_code} Finals\nDate: { date }\nDuration: { duration } minutes\nCountdown: {cd} days\n\n'
-    if output == "": # If the User does not have any exams
-        all_mods = db.collection( "users" ).document( userid ).collection( "all_mods" ).document( "all_mods" ).get().to_dict()
-        if len( all_mods ) > 0:
-            button = telebot.types.KeyboardButton( "Return to Main" )
-            markup = telebot.types.ReplyKeyboardMarkup( resize_keyboard = True, one_time_keyboard = True )
-            markup.add(button)
-            bot.send_message( int(userid), "You have no examinations! :)", reply_markup = markup )
+    if sem_end < test_date:
+        button = telebot.types.KeyboardButton( "Return to Main")
+        markup = telebot.types.ReplyKeyboardMarkup( resize_keyboard = True, one_time_keyboard = True )
+        markup.add( button )
+        bot.send_message( int(userid), "The semester has ended, have a good break! :)", reply_markup = markup )
+    else:
+        doc_ref = db.collection( "users" ).document( userid ).collection( "exam" ).document( "timings" )
+        doc = doc_ref.get().to_dict() # Returns a dictionary where the keys are module codes and items are the respective exam timings. Can be empty
+        output = ""
+        exam_list = []
+        for mod_code in doc:
+            exam_list.append( mod_code )
+        exam_list = sorted( exam_list, key = lambda x: doc[x][0][5:7] )
+        for mod_code in exam_list:
+            dd = doc[mod_code][0][8:10] # Day of exam
+            mm = doc[mod_code][0][5:7]
+            yy = doc[mod_code][0][:4]
+            date = f'{dd}/{mm}/{yy}'
+            duration = doc[mod_code][1] # Duration of exam
+            cd = (datetime( int(yy), int(mm), int(dd) ) - test_date).days
+            if cd >= 0:
+                output += f'{mod_code} Finals\nDate: { date }\nDuration: { duration } minutes\nCountdown: {cd} days\n\n'
+        if output == "": # If the User does not have any exams
+            all_mods = db.collection( "users" ).document( userid ).collection( "all_mods" ).document( "all_mods" ).get().to_dict()
+            if len( all_mods ) > 0:
+                button = telebot.types.KeyboardButton( "Return to Main" )
+                markup = telebot.types.ReplyKeyboardMarkup( resize_keyboard = True, one_time_keyboard = True )
+                markup.add(button)
+                bot.send_message( int(userid), "You have no examinations! :)", reply_markup = markup )
+            else:
+                button1 = telebot.types.KeyboardButton( "Add module" )
+                button2 = telebot.types.KeyboardButton( "Return to Main" )
+                markup = telebot.types.ReplyKeyboardMarkup( resize_keyboard = True, one_time_keyboard = True )
+                markup.add( button1 ).add( button2 )
+                bot.send_message( int(userid), "You have no modules, please proceed to add modules.", reply_markup = markup )
+                bot.register_next_step_handler( message, choice4, userid ) # Next step based on User's choice
         else:
             button1 = telebot.types.KeyboardButton( "Add module" )
-            button2 = telebot.types.KeyboardButton( "Return to Main" )
+            button2 = telebot.types.KeyboardButton( "Delete module" )
+            button3 = telebot.types.KeyboardButton( "Return to Main" )
             markup = telebot.types.ReplyKeyboardMarkup( resize_keyboard = True, one_time_keyboard = True )
-            markup.add( button1 ).add( button2 )
-            bot.send_message( int(userid), "You have no modules, please proceed to add modules.", reply_markup = markup )
-            bot.register_next_step_handler( message, choice4, userid ) # Next step based on User's choice
-    else:
-        button1 = telebot.types.KeyboardButton( "Add module" )
-        button2 = telebot.types.KeyboardButton( "Delete module" )
-        button3 = telebot.types.KeyboardButton( "Return to Main" )
-        markup = telebot.types.ReplyKeyboardMarkup( resize_keyboard = True, one_time_keyboard = True )
-        markup.add( button1 ).add( button2 ).add( button3 )
-        bot.send_message( int(userid), f"Here are your exam dates for AY {ay.replace( '-', '/' )} Semester {semester+1}:\n\n{output}", reply_markup = markup )
-        bot.register_next_step_handler( message, choice4, userid )
+            markup.add( button1 ).add( button2 ).add( button3 )
+            bot.send_message( int(userid), f"Here are your exam dates for AY {ay.replace( '-', '/' )} Semester {semester+1}:\n\n{output}", reply_markup = markup )
+            bot.register_next_step_handler( message, choice4, userid )
 
 
 # END OF FUNCTION (4) Exam Timetable
