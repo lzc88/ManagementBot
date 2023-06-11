@@ -1159,6 +1159,28 @@ def handle_ics_link_input(message, user_doc):
 
 # FUNCTION (2) Personal Planner
 
+def get_pp(user_id):
+    user_doc = db.collection("users").document(user_id)
+    pp_data = []
+
+    # Retrieve the .ics data from Firestore
+    ics_data_doc = user_doc.collection("pp_cc_data").document("ics_data").get()
+
+    if ics_data_doc.exists:
+        ics_data = ics_data_doc.to_dict().get("data", [])
+
+        for i, event in enumerate(ics_data, start=1):
+            event_date = datetime.strptime(event['date'], "%Y-%m-%d %H:%M:%S")
+
+            pp_data.append({
+                'id': i,
+                'title': event['title'],
+                'date': event_date,
+                'notes': event['notes']
+            })
+
+    return pp_data
+
 # To Delete Personal Planner
 @bot.message_handler(regexp="Delete_all_personal_planner")
 def delete_personal_planner(message):
@@ -1182,23 +1204,29 @@ def personal_planner(message):
     pp_ref = db.collection('users').document(user_id).collection('personal_planner')
 
     pp_data = pp_ref.get()
+    event_list = []
+
+    # Retrieve the .ics data from pp_cc_data collection
+    pp_cc_data_ref = db.collection('users').document(user_id).collection('pp_cc_data').document("ics_data")
+    ics_data_doc = pp_cc_data_ref.get()
+
     if pp_data:
-        event_list = []
         for doc in pp_data:
             event_data = doc.to_dict()
-            event_data['date'] = datetime.strptime(event_data['date'], "%d/%m/%Y %H%M")
+            event_data['date'] = event_data['date'].to_datetime()  # Convert to datetime object
             event_list.append(event_data)
 
-        # Retrieve the .ics data from pp_cc_data collection
-        ics_data_doc = db.collection('users').document(user_id).collection('pp_cc_data').document("ics_data").get()
-        if ics_data_doc.exists:
-            ics_data = ics_data_doc.to_dict().get('data')
-            if ics_data:
-                for event in ics_data:
-                    event['date'] = datetime.strptime(event['date'], "%Y-%m-%d %H:%M:%S")
-                    event_list.append(event)
+    if ics_data_doc.exists:
+        ics_data = ics_data_doc.to_dict().get('data')
+        if ics_data:
+            for event in ics_data:
+                event_list.append({
+                    'title': event['title'],
+                    'date': event['date'],
+                    'notes': event['notes']
+                })
 
-        # Sort the event list based on the 'date' field in ascending order
+    if event_list:
         sorted_events = sorted(event_list, key=lambda x: x['date'])
 
         response = "Your Personal Planner:\n\n"
