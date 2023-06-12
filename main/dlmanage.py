@@ -104,11 +104,11 @@ def update_user_data(user_id, data):
 
     
 ########## GENERATE A LIST OF MODULE CODES ##########
-""" mods_basic_req = requests.get( mods_basic_end.replace( replace_ay, ay ) )
+mods_basic_req = requests.get( mods_basic_end.replace( replace_ay, ay ) )
 mods_basic = mods_basic_req.json() # List of dictionaries, each dictionary represents a module
 modcodes = []
 for i in mods_basic:
-    modcodes.append( i["moduleCode"]) # List of all module codes """
+    modcodes.append( i["moduleCode"]) # List of all module codes
 
 ####################################################################################################
 
@@ -122,7 +122,7 @@ def choice( text, userid ):
     elif option == "School Timetable":
         school_timetable( text, userid )
     elif option == "Assignments Deadlines":
-        assignments_deadline( text )
+        assignments_deadline( text, userid )
     elif option == "Personal Planner":
         personal_planner( text )
     elif option == "Report Issues":
@@ -191,15 +191,13 @@ def start( startmessage ):
 ###################################################################################################################################
 
 # FUNCTION (1) Assignments Deadlines
-    
-def get_dl(user_id):
-    user_doc = db.collection("users").document(user_id)
+
+########## HELPER FUNCTION FOR GETTING DL ##########    
+def get_dl( userid ):
+    user_doc = db.collection("users").document( userid )
     dl_data = []
-
-    # Retrieve the .ics data from Firestore
-    ics_data_doc = user_doc.collection("CC_data").document("ics_data").get()
-
-    if ics_data_doc.exists:
+    ics_data_doc = db.collection("users").document(userid).collection("CC_data").document("ics_data").get() # Retrieve .ics data from database
+    if ics_data_doc.exists: # If .ics data exists
         ics_data = ics_data_doc.to_dict().get("data", [])
 
         for i, assignment in enumerate(ics_data, start=1):
@@ -215,8 +213,7 @@ def get_dl(user_id):
                 'status': assignment['status']
             })
 
-    # Retrieve manually typed deadline data from Firestore
-    manually_typed_dl_docs = user_doc.collection("dl_data").stream()
+    manually_typed_dl_docs = user_doc.collection("dl_data").stream() # Retrieve manually typed deadline data from database
 
     for i, doc in enumerate(manually_typed_dl_docs, start=len(dl_data)+1):
         dl = doc.to_dict()
@@ -285,49 +282,37 @@ def check_deadline_reminders(user_id):
         # Wait for 1 minute before checking deadlines again
         time.sleep(60)
     
-#Main function for Assignment Deadlines
-@bot.message_handler(regexp = "Assignments Deadlines")
-def assignments_deadline(message):
-    user_id = str(message.from_user.id)
-    user_data = get_user_data(user_id)
-    deadlines = get_dl(user_id)
+########## MAIN FUNCTION FOR ASSIGNMENT DEADLINES ##########
+def assignments_deadline( message, userid ):
+    user_data = get_user_data( userid )
+    deadlines = get_dl( userid )
 
     if deadlines:
         page_size = 8  # Number of assignments per page
-        total_pages = (len(deadlines) + page_size - 1) // page_size
 
-        # Retrieve the current page from user data (default to the first page)
-        current_page = user_data.get("current_page", 1)
+        current_page = user_data.get("current_page", 1) # Retrieve the current page from user data (default to the first page)
 
-        # Calculate the start and end index for the current page
-        start_index = (current_page - 1) * page_size
-        end_index = start_index + page_size
+        start_index = (current_page - 1) * page_size # Calculate the start index for current page
+        end_index = start_index + page_size # Calculate the end index for current page
 
-        # List to store titles of assignments to be deleted
-        assignments_to_delete = []
+        assignments_to_delete = [] # List to store titles of expired assignments to be deleted
 
-        # Iterate through deadlines and check for assignments to be deleted
-        for assignment in deadlines:
+        for assignment in deadlines: # Iterate through deadlines and check for assignments to be deleted
             due_date = datetime.strptime(assignment['due_date'], "%A, %d/%m/%y %H%Mhrs")
             current_date = datetime.now()
             time_remaining = due_date - current_date
 
-            # Check if the assignment is past due and due for more than 24 hours
-            if time_remaining.total_seconds() <= 0 and time_remaining.total_seconds() <= -24 * 3600:
+            if time_remaining.total_seconds() <= 0 and time_remaining.total_seconds() <= -24 * 3600: # If the assignment is past due and due for more than 24 hours
                 assignments_to_delete.append(assignment['title'])
 
-        # Process the deletion of assignments
-        for title in assignments_to_delete:
-            auto_delete_assignment(user_id,title)
+        for title in assignments_to_delete: # Process the deletion of assignments
+            auto_delete_assignment( userid, title )
 
-        # Retrieve the updated deadlines after deletion
-        deadlines = get_dl(user_id)
+        deadlines = get_dl( userid ) # Retrieve the updated deadlines after deletion
 
-        # Sort deadlines by due date
-        sorted_deadlines = sorted(deadlines, key=lambda x: (x['status'] == 'COMPLETED', datetime.strptime(x['due_date'], "%A, %d/%m/%y %H%Mhrs")))
+        sorted_deadlines = sorted(deadlines, key=lambda x: (x['status'] == 'COMPLETED', datetime.strptime(x['due_date'], "%A, %d/%m/%y %H%Mhrs"))) # Sort deadlines by due date
 
-        # Retrieve the assignments for the current page
-        current_assignments = sorted_deadlines[start_index:end_index]
+        current_assignments = sorted_deadlines[start_index:end_index] # Retrieve the assignments for the current page
 
         # Generate the response message for the current page
         response = "These are your current deadlines:\n\n"
@@ -395,7 +380,7 @@ def assignments_deadline(message):
         bot.send_message(message.chat.id, response, reply_markup=markup, parse_mode="HTML")
 
         # Update user data with the current page
-        update_user_data(user_id, {"current_page": current_page})
+        update_user_data(userid, {"current_page": current_page})
 
     else:
         response = "Your deadlines list is empty. Please add in deadlines to use this function.\n\n"
@@ -691,7 +676,10 @@ def mark_completed(message):
             bot.register_next_step_handler(message, process_completed, completed_assignments)
     else:
         response = "Yay! You have completed all your assignments for now. Keep up the good work!"
-        bot.reply_to(message, response)
+        button = telebot.types.KeyboardButton( "Return to Main" )
+        markup = telebot.types.ReplyKeyboardMarkup( resize_keyboard = True, one_time_keyboard = True )
+        markup.add( button )
+        bot.send_message( user_id, response, reply_markup = markup )
 
 
 def process_completed(message, pending_assignments):
