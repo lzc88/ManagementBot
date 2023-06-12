@@ -290,6 +290,7 @@ def check_deadline_reminders(user_id):
 def assignments_deadline(message):
     user_id = str(message.from_user.id)
     user_data = get_user_data(user_id)
+    retrieve_and_update_ics_data(user_id)
     deadlines = get_dl(user_id)
 
     if deadlines:
@@ -561,19 +562,25 @@ def auto_delete_assignment(user_id,title):
 @bot.message_handler(regexp="Delete Deadline")
 def delete_deadline(message):
     user_id = str(message.from_user.id)
-    deadlines = get_dl(user_id)
+    user_doc = db.collection("users").document(user_id)
+    deadlines = user_doc.collection("dl_data").stream()
 
     if deadlines:
-        response = "Please select the deadline you want to delete:\n"
-        sorted_deadlines = sorted(deadlines, key=lambda x: datetime.strptime(x['due_date'], "%A, %d/%m/%y %H%Mhrs"))
+        sorted_deadlines = sorted(deadlines, key=lambda x: datetime.strptime(x.to_dict()['due_date'].strftime("%A, %d/%m/%y %H%Mhrs"), "%A, %d/%m/%y %H%Mhrs"))
+        response = "Please select the deadline you want to delete:\n\n"
         for i, deadline in enumerate(sorted_deadlines, start=1):
-            response += f"{i}) {deadline['title']} - {deadline['due_date']}\n"
+            deadline_data = deadline.to_dict()
+            # Remove the "+00:00" from the datetime string
+            due_date_str = deadline_data['due_date'].strftime("%A, %d/%m/%y %H%Mhrs").replace("+00:00", "")
+            response += f"{i}) {deadline_data['title']} - {due_date_str}\n"
         
         keyboard = ReplyKeyboardMarkup(resize_keyboard=True, one_time_keyboard=True)
         for deadline in sorted_deadlines:
-            keyboard.add(KeyboardButton(deadline['title']))
+            deadline_data = deadline.to_dict()
+            keyboard.add(KeyboardButton(deadline_data['title']))
         keyboard.add(KeyboardButton('back'))
-        response += "\n\nIf you wish to delete All deadlines (INCLUDES CALENDAR DATA), please manually type 'delete_all_deadlines' "
+        response += "\n\nNote that only deadlines that are manually added will appear."
+        response += "\nIf you wish to delete All deadlines (INCLUDES CALENDAR DATA), please manually type 'delete_all_deadlines' "
         bot.send_message(message.chat.id, response, reply_markup=keyboard)
         bot.register_next_step_handler(message, process_delete)
     else:
@@ -827,9 +834,168 @@ def process_uncompleted(message, completed_assignments):
 
         bot.reply_to(message, response)
         assignments_deadline(message)
-
-
+        
+################################################################################################       
+        
 # Function to prompt the user to upload .ics file or provide the link
+@bot.message_handler(regexp="Manage Calendar Data")
+def prompt_calendar_data(message):
+    user_id = str(message.from_user.id)
+    user_doc = db.collection("users").document(user_id)
+    state = {"user_doc": user_doc}
+
+    # Check if .ics data exists
+    if user_doc.collection("CC_data").document("ics_data").get().exists and len("CC_data") > 0:
+        markup = ReplyKeyboardMarkup(row_width=2, one_time_keyboard=True)
+        update_button = KeyboardButton("Update Canvas Calendar .ics link")
+        delete_button = KeyboardButton("Delete Canvas Calendar .ics link")
+        back_button = KeyboardButton("Back")
+        markup.add(update_button, delete_button, back_button)
+
+        response = "The .ics data already exists. What would you like to do?\n\n"
+        response += "Do note that providing calendar data will not affect deadlines which you have manually entered through 'Manage Deadlines data'. However, "
+        response += "all deadlines imported from previous .ics file will be overridden if you update .ics data.\n\n"
+        response += "To retrieve .ics data from Canvas, please go to canvas -> calendar (on the left side) -> Calendar feed (Bottom Right) "
+        response += "The .ics link is in the textbox, copy and paste the link and send it as a message to the bot, and the bot will process it.\n\n"
+        response += 'Please ensure that your .ics file is not corrupted, else you will get an error. This issue may rise if there are no valid deadlines on your canvas calendar '
+        response += 'or all assignments in your canvas calendar all are past the due date.'
+        
+        bot.send_message(user_id, response, reply_markup=markup)
+        bot.register_next_step_handler(message, handle_existing_ics_data, state)
+    else:
+        markup = ReplyKeyboardMarkup(row_width=2, one_time_keyboard=True)
+        back_button = KeyboardButton("Back")
+        markup.add(back_button)
+
+        response = "Please provide the link of your own Canvas calendar .ics data. The bot will retrieve the data from the provided link and store it.\n\n"
+        response += "Do note that providing calendar data will not affect deadlines which you have manually entered through 'Manage Deadlines data'. However, "
+        response += "all deadlines imported from previous .ics file will be overridden if you update .ics data.\n\n"
+        response += "To retrieve .ics data from Canvas, please go to canvas -> calendar (on the left side) -> Calendar feed (Bottom Right) "
+        response += "The .ics link is in the textbox, copy and paste the link and send it as a message to the bot, and the bot will process it.\n\n"
+        response += 'Please ensure that your .ics file is not corrupted, else you will get an error. This issue may rise if there are no valid deadlines on your canvas calendar '
+        response += 'or all assignments in your canvas calendar all are past the due date.'
+        
+        bot.send_message(user_id, response, reply_markup=markup)
+        bot.register_next_step_handler(message, handle_calendar_data_input, state)
+
+# Handler for processing the selected option when .ics data exists
+def handle_existing_ics_data(message, state):
+    user_doc = state["user_doc"]
+
+    if message.text == "Back":
+        assignments_deadline(message)
+    elif message.text == "Update Canvas Calendar .ics link":
+        user_id = str(message.from_user.id)
+        user_data = get_user_data(user_id)
+        user_data["current_page"] = 1
+        update_user_data(user_id, user_data)
+
+        bot.send_message(message.chat.id, "Please send the .ics link of your own Canvas calendar data. The bot will retrieve the data from the provided link and update it.")
+        bot.register_next_step_handler(message, handle_calendar_data_input, state)
+    elif message.text == "Delete Canvas Calendar .ics link":
+        ics_link_doc = user_doc.collection("CC_data").document("ics_link")
+        ics_link_doc.delete()
+        ics_data_doc = user_doc.collection("CC_data").document("ics_data")
+        ics_data_doc.delete()
+
+        # Reset the current page to 1
+        user_id = str(message.from_user.id)
+        user_data = get_user_data(user_id)
+        user_data["current_page"] = 1
+        update_user_data(user_id, user_data)
+
+        bot.send_message(message.chat.id, "The .ics link has been deleted.")
+        assignments_deadline(message)
+    else:
+        bot.send_message(message.chat.id, "Invalid option. Please try again.")
+        handle_existing_ics_data(message, state)
+
+        
+# Handler for processing the provided .ics link
+def handle_calendar_data_input(message, state):
+    user_doc = state["user_doc"]
+
+    if message.text == "Back":
+        assignments_deadline(message)
+    else:
+        ics_link = message.text.strip()
+
+        # Store the .ics link under the user's document
+        user_doc.collection("CC_data").document("ics_link").set({'link': ics_link})
+
+        bot.send_message(message.chat.id, "The .ics link has been successfully stored.")
+
+        assignments_deadline(message)
+
+
+# Function to retrieve the .ics data from the stored link and update the data
+def retrieve_and_update_ics_data(user_id):
+    user_doc = db.collection("users").document(user_id)
+    ics_link_doc = user_doc.collection("CC_data").document("ics_link")
+    ics_link_data = ics_link_doc.get().to_dict()
+
+    if ics_link_data and 'link' in ics_link_data:
+        ics_link = ics_link_data['link']
+
+        # Retrieve the existing .ics data
+        ics_data_doc = user_doc.collection("CC_data").document("ics_data").get()
+        existing_ics_data = ics_data_doc.to_dict().get("data", []) if ics_data_doc.exists else []
+
+        # Process the .ics file data from the link and preserve existing statuses
+        ics_data = process_ics_file(ics_link, existing_data=existing_ics_data)
+
+        if ics_data:
+            # Store the updated .ics data under the user's document
+            user_doc.collection("CC_data").document("ics_data").set({'data': ics_data})
+
+        return ics_data
+    else:
+        return None
+    
+    
+# Function to process the .ics file data and extract the required fields
+
+
+def process_ics_file(file_url, existing_data=None):
+    try:
+        response = requests.get(file_url)
+        response.raise_for_status()
+
+        ics_content = response.text
+
+        # Parse the .ics content
+        cal = icalendar.Calendar.from_ical(ics_content)
+
+        # Extract the required fields from the .ics file
+        extracted_data = []
+
+        for event in cal.walk('vevent'):
+            title = str(event.get('summary'))
+            due_date = event.get('dtstart').dt
+
+            status = 'NOT COMPLETED'
+            if existing_data:
+                # Check if the assignment already exists in the existing data
+                existing_assignment = next((a for a in existing_data if a['title'] == title and a['due_date'] == due_date), None)
+                if existing_assignment:
+                    status = existing_assignment['status']
+
+            assignment = {
+                'title': title,
+                'due_date': due_date,
+                'status': status
+            }
+
+            extracted_data.append(assignment)
+
+        return extracted_data
+    except requests.exceptions.RequestException as e:
+        print(f"Error retrieving .ics file: {e}")
+        return None    
+    
+    
+########################################################
+""" # Function to prompt the user to upload .ics file or provide the link
 @bot.message_handler(regexp="Manage Calendar Data")
 def prompt_calendar_data(message):
     user_id = str(message.from_user.id)
@@ -848,8 +1014,7 @@ def prompt_calendar_data(message):
         response += "Do note that providing calendar data will not affect deadlines which you have manually entered through 'Manage Deadlines data'. However, "
         response += "all deadlines imported from previous .ics file will be overridden if you update .ics data.\n\n"
         response += "To retrieve .ics data from Canvas, please go to canvas -> calendar (on the left side) -> Calendar feed (Bottom Right) \n"
-        response += "The .ics link is in the textbox, select 'Provide .ics link' and copy paste the link for the bot."
-        response += " Else, if you click on 'Click to view Calendar Feed', you will download .ics file, select 'Upload .ics file' and upload the .ics file to the bot.\n\n"
+        response += "The .ics link is in the textbox, copy and paste the link and send it as a message to the bot, and the bot will process it."
         response += 'Please ensure that your .ics file is not corrupted, else you will get an error. This issue may rise if there are no valid deadlines on your canvas calendar '
         response += 'or all assignments in your canvas calendar all are past the due date.'
         bot.send_message(user_id, response, reply_markup=markup)
@@ -865,14 +1030,13 @@ def prompt_calendar_data(message):
         response = "Please select an option to provide the calendar data.\n\n"
         response += "Do note that providing calendar data will not affect deadlines which you have manually entered through 'Manage Deadlines data'.\n\n"
         response += "To retrieve .ics data from Canvas, please go to canvas -> calendar (on the left side) -> Calendar feed (Bottom Right) \n"
-        response += "The .ics link is in the textbox, select 'Provide .ics link' and copy paste the link for the bot."
-        response += " Else, if you click on 'Click to view Calendar Feed', you will download .ics file, select 'Upload .ics file' and upload the .ics file to the bot.\n\n"
+        response += "The .ics link is in the textbox, copy and paste the link and send it as a message to the bot, and the bot will process it."
         response += 'Please ensure that your .ics file is not corrupted, else you will get an error. This issue may rise if there are no valid deadlines on your canvas calendar '
         response += 'or all assignments in your canvas calendar all are past the due date.'
         bot.send_message(user_id, response, reply_markup=markup)
-        bot.register_next_step_handler(message, handle_calendar_data_input, state)
+        bot.register_next_step_handler(message, handle_calendar_data_input, state) """
 
-# Handler for processing the selected option when .ics data exists
+""" # Handler for processing the selected option when .ics data exists
 def handle_existing_ics_data(message, state):
     user_doc = state["user_doc"]
 
@@ -907,9 +1071,9 @@ def handle_existing_ics_data(message, state):
         bot.send_message(message.chat.id, "The .ics data has been deleted.")
         assignments_deadline(message)
     else:
-        bot.send_message(message.chat.id, "Invalid option. Please try again.")
+        bot.send_message(message.chat.id, "Invalid option. Please try again.") """
 
-# Handler for processing the selected option to update the .ics data when no .ics data is found
+""" # Handler for processing the selected option to update the .ics data when no .ics data is found
 def handle_update_calendar_data_input(message, state):
     user_doc = state["user_doc"]
 
@@ -922,10 +1086,10 @@ def handle_update_calendar_data_input(message, state):
         bot.send_message(message.chat.id, "Please provide the new .ics link.")
         bot.register_next_step_handler(message, handle_ics_link_input, user_doc)
     else:
-        bot.send_message(message.chat.id, "Invalid option. Please try again.")
+        bot.send_message(message.chat.id, "Invalid option. Please try again.") """
 
 
-# Handler for processing the selected option and obtaining the calendar data
+""" # Handler for processing the selected option and obtaining the calendar data
 def handle_calendar_data_input(message, state):
     user_doc = state["user_doc"]
 
@@ -938,9 +1102,9 @@ def handle_calendar_data_input(message, state):
         bot.send_message(message.chat.id, "Please provide the .ics link.")
         bot.register_next_step_handler(message, handle_ics_link_input, user_doc)
     else:
-        bot.send_message(message.chat.id, "Invalid option. Please try again.")
+        bot.send_message(message.chat.id, "Invalid option. Please try again.") """
 
-# Handler for processing the uploaded .ics file
+""" # Handler for processing the uploaded .ics file
 def handle_ics_file_upload(message, user_doc):
     if message.document:
         file_info = bot.get_file(message.document.file_id)
@@ -963,10 +1127,10 @@ def handle_ics_file_upload(message, user_doc):
         
         assignments_deadline(message)  # Send the user back to assignments_deadline()
     else:
-        bot.send_message(message.chat.id, "No file uploaded. Please try again.")
+        bot.send_message(message.chat.id, "No file uploaded. Please try again.") """
 
 
-# Handler for processing the provided .ics link
+""" # Handler for processing the provided .ics link
 def handle_ics_link_input(message, user_doc):
     if message.text == "Back":
         assignments_deadline(message)
@@ -984,39 +1148,9 @@ def handle_ics_link_input(message, user_doc):
         assignments_deadline(message)
     else:
         bot.send_message(message.chat.id, "Failed to process the .ics link.")
-        assignments_deadline(message)  
+        assignments_deadline(message)   """
 
 
-# Function to process the .ics file data and extract the required fields
-def process_ics_file(file_url):
-    try:
-        response = requests.get(file_url)
-        response.raise_for_status()
-
-        ics_content = response.text
-
-        # Parse the .ics content
-        cal = icalendar.Calendar.from_ical(ics_content)
-
-        # Extract the required fields from the .ics file
-        extracted_data = []
-
-        for event in cal.walk('vevent'):
-            title = str(event.get('summary'))
-            due_date = event.get('dtstart').dt
-
-            assignment = {
-                'title': title,
-                'due_date': due_date,
-                'status': 'NOT COMPLETED'
-            }
-
-            extracted_data.append(assignment)
-
-        return extracted_data
-    except requests.exceptions.RequestException as e:
-        print(f"Error retrieving .ics file: {e}")
-        return None
 
 
 # END OF FUNCTION (1) Assignment Deadlines
@@ -1024,6 +1158,28 @@ def process_ics_file(file_url):
 ###################################################################################################################################
 
 # FUNCTION (2) Personal Planner
+
+def get_pp(user_id):
+    user_doc = db.collection("users").document(user_id)
+    pp_data = []
+
+    # Retrieve the .ics data from Firestore
+    ics_data_doc = user_doc.collection("pp_cc_data").document("ics_data").get()
+
+    if ics_data_doc.exists:
+        ics_data = ics_data_doc.to_dict().get("data", [])
+
+        for i, event in enumerate(ics_data, start=1):
+            event_date = datetime.strptime(event['date'], "%Y-%m-%d %H:%M:%S")
+
+            pp_data.append({
+                'id': i,
+                'title': event['title'],
+                'date': event_date,
+                'notes': event['notes']
+            })
+
+    return pp_data
 
 # To Delete Personal Planner
 @bot.message_handler(regexp="Delete_all_personal_planner")
@@ -1048,14 +1204,29 @@ def personal_planner(message):
     pp_ref = db.collection('users').document(user_id).collection('personal_planner')
 
     pp_data = pp_ref.get()
+    event_list = []
+
+    # Retrieve the .ics data from pp_cc_data collection
+    pp_cc_data_ref = db.collection('users').document(user_id).collection('pp_cc_data').document("ics_data")
+    ics_data_doc = pp_cc_data_ref.get()
+
     if pp_data:
-        event_list = []
         for doc in pp_data:
             event_data = doc.to_dict()
-            event_data['date'] = datetime.strptime(event_data['date'], "%d/%m/%Y %H%M")
+            event_data['date'] = event_data['date'].to_datetime()  # Convert to datetime object
             event_list.append(event_data)
 
-        # Sort the event list based on the 'date' field in ascending order
+    if ics_data_doc.exists:
+        ics_data = ics_data_doc.to_dict().get('data')
+        if ics_data:
+            for event in ics_data:
+                event_list.append({
+                    'title': event['title'],
+                    'date': event['date'],
+                    'notes': event['notes']
+                })
+
+    if event_list:
         sorted_events = sorted(event_list, key=lambda x: x['date'])
 
         response = "Your Personal Planner:\n\n"
@@ -1070,10 +1241,164 @@ def personal_planner(message):
     keyboard = ReplyKeyboardMarkup(resize_keyboard=True, one_time_keyboard=True)
     keyboard.add(KeyboardButton("Add Events"))
     keyboard.add(KeyboardButton("Delete Events"))
+    keyboard.add(KeyboardButton("Manage .ics data"))
     keyboard.add(KeyboardButton("Return to Main"))
 
     bot.send_message(message.chat.id, response, reply_markup=keyboard)
     bot.register_next_step_handler(message, handle_personal_planner_menu)
+
+def process_ics_file(file_url):
+    try:
+        response = requests.get(file_url)
+        if response.status_code == 200:
+            ics_content = response.text
+            calendar = icalendar.Calendar.from_ical(ics_content)
+            events = []
+            for event in calendar.walk("VEVENT"):
+                event_name = event.get("summary")
+                event_datetime = event.get("dtstart").dt
+                event_notes = event.get("description")
+                event_data = {
+                    'title': event_name,
+                    'date': event_datetime,
+                    'notes': event_notes
+                }
+                events.append(event_data)
+            return events
+        else:
+            return None
+    except Exception as e:
+        print("Error processing .ics file:", str(e))
+        return None
+
+# Function to prompt the user to upload .ics file or provide the link
+@bot.message_handler(regexp="Manage .ics data")
+def prompt_pp_calendar_data(message):
+    user_id = str(message.from_user.id)
+    user_doc = db.collection("users").document(user_id)
+    state = {"user_doc": user_doc}
+    # Check if .ics data exists
+    if user_doc.collection('pp_cc_data').document('ics_data').get().exists:
+        markup = ReplyKeyboardMarkup(row_width=2, one_time_keyboard=True)
+        update_button = KeyboardButton("Update .ics data")
+        delete_button = KeyboardButton("Delete .ics data")
+        back_button = KeyboardButton("Back")
+        markup.add(update_button, delete_button, back_button)
+        response = "The .ics data already exists. What would you like to do?\n\n"
+        response += "Do note that providing calendar data will not affect deadlines which you have manually entered through 'Manage Deadlines data'. However, "
+        response += "all deadlines imported from previous .ics file will be overridden if you update .ics data.\n\n"
+        bot.send_message(user_id, response, reply_markup=markup)
+        bot.register_next_step_handler(message, handle_existing_pp_ics_data, state)
+    else:
+        markup = ReplyKeyboardMarkup(row_width=2, one_time_keyboard=True)
+        upload_button = KeyboardButton("Upload .ics file")
+        link_button = KeyboardButton("Provide .ics link")
+        back_button = KeyboardButton("Back")
+        markup.add(upload_button, link_button)
+        markup.add(back_button)
+
+        response = "Please select an option to provide the calendar data.\n\n"
+        response += "Do note that providing calendar data will not affect deadlines which you have manually entered through 'Manage Deadlines data'.\n\n"
+        response += "To retrieve .ics data from Canvas, please go to canvas -> calendar (on the left side) -> Calendar feed (Bottom Right) \n"
+        bot.send_message(user_id, response, reply_markup=markup)
+        bot.register_next_step_handler(message, handle_update_pp_calendar_data_input, state)
+
+
+def handle_ics_file_upload(message, user_doc):
+    if message.document:
+        file_info = bot.get_file(message.document.file_id)
+        file_url = f"https://api.telegram.org/file/bot{bottoken}/{file_info.file_path}"
+
+        # Process the uploaded .ics file
+        ics_data = process_ics_file(file_url)
+
+        if ics_data:
+            pp_cc_data_ref = user_doc.collection('pp_cc_data')
+            pp_cc_data_ref.document('ics_data').set({'data': ics_data})
+            bot.send_message(message.chat.id, "The .ics file has been successfully uploaded and stored.")
+        else:
+            bot.send_message(message.chat.id, "Failed to process the .ics file.")
+
+        handle_personal_planner_menu(message)
+    else:
+        bot.send_message(message.chat.id, "No file uploaded.")
+
+
+# Handler for processing the provided .ics link for personal planner
+def handle_ics_link_input(message, user_doc):
+    user_id = str(message.from_user.id)
+    pp_cc_data_ref = user_doc.collection("pp_cc_data")
+
+    if message.text == "Back":
+        personal_planner(message)
+    else:
+        ics_link = message.text.strip()
+
+        # Process the .ics file data from the link
+        ics_data = process_ics_file(ics_link)
+
+        if ics_data:
+            # Store the .ics data under the pp_cc_data collection
+            pp_cc_data_ref.document("ics_data").set({'data': ics_data})
+
+            bot.send_message(message.chat.id, "Personal Planner data has been successfully imported.")
+            personal_planner(message)  # Display the updated personal planner
+        else:
+            bot.send_message(message.chat.id, "Failed to process the .ics link.")
+
+
+# Handler for processing the selected option when .ics data exists
+def handle_existing_pp_ics_data(message, state):
+    user_doc = state["user_doc"]
+
+    if message.text == "Back":
+        personal_planner(message)
+    elif message.text == "Update .ics data":
+        markup = ReplyKeyboardMarkup(resize_keyboard=True, one_time_keyboard=True)
+        upload_button = KeyboardButton("Upload .ics file")
+        link_button = KeyboardButton("Provide .ics link")
+        back_button = KeyboardButton("Back")
+        markup.add(upload_button, link_button)
+        markup.add(back_button)
+
+        user_id = str(message.from_user.id)
+        user_data = get_user_data(user_id)
+        user_data["current_page"] = 1
+        update_user_data(user_id, user_data)
+
+        bot.send_message(message.chat.id, "Please select an option to update the calendar data:", reply_markup=markup)
+        bot.register_next_step_handler(message, handle_update_pp_calendar_data_input, state)
+    elif message.text == "Delete .ics data":
+        ics_data_doc = user_doc.collection("pp_cc_data").document("ics_data")
+        ics_data_doc.delete()
+
+        # Reset the current page to 1
+        user_id = str(message.from_user.id)
+        user_data = get_user_data(user_id)
+        user_data["current_page"] = 1
+        update_user_data(user_id, user_data)
+
+        bot.send_message(message.chat.id, "The .ics data has been deleted.")
+        personal_planner(message)
+    else:
+        bot.send_message(message.chat.id, "Invalid option. Please try again.")
+
+
+# Handler for processing the selected option to update the .ics data when no .ics data is found
+def handle_update_pp_calendar_data_input(message, state):
+    user_doc = state["user_doc"]
+
+    if message.text == "Back":
+        personal_planner(message)
+    elif message.text == "Upload .ics file":
+        bot.send_message(message.chat.id, "Please upload the new .ics file.")
+        bot.register_next_step_handler(message, handle_ics_file_upload, user_doc)
+    elif message.text == "Provide .ics link":
+        bot.send_message(message.chat.id, "Please provide the new .ics link.")
+        bot.register_next_step_handler(message, handle_ics_link_input, user_doc)
+    else:
+        bot.send_message(message.chat.id, "Invalid option. Please try again.")
+
 
 def handle_personal_planner_menu(message):
     user_reply = message.text.lower()
@@ -1084,6 +1409,8 @@ def handle_personal_planner_menu(message):
         delete_event(message)
     elif user_reply == 'return to main':
         main(message)
+    elif user_reply == "manage .ics data":
+        prompt_pp_calendar_data(message)
     else:
         bot.send_message(message.chat.id, "Invalid option. Please select a valid option.")
 
