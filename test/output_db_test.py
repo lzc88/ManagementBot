@@ -10,6 +10,11 @@ db = firestore.client()
 my_id = "291900788"
 days = ["Monday","Tuesday","Wednesday","Thursday","Friday","Saturday","Sunday"]
 
+# Get user's main data
+
+user = db.collection( "users" ).document( my_id ).get().to_dict()
+print( user )
+
 # Getting the titles of multiple Documents from a Collection
 
 docs = db.collection( "users" ).document( my_id ).collection( "mods" ).document( "CS1010S" ).collection( "module_info" ).stream()
