@@ -279,7 +279,6 @@ def get_dl( userid ):
     
     return dl_data
 
-
 ########## HELPER FUNCTION TO AUTO DELETE ASSIGNMENT ##########
 def auto_del_assignment( userid, dl_name ):
     dl_data = db.collection( "users" ).document( userid ).collection( "dl_data" ).document( "assignments" ).get().to_dict()
