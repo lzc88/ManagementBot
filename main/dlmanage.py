@@ -278,10 +278,7 @@ def get_dl( userid ):
 ########## HELPER FUNCTION TO SAVE ASSIGNMENT ##########
 def save_dl_details( userid, dl_name, dl_datetime):
     dl_ref = db.collection('users').document(userid).collection('dl_data').document("assignments")
-    dl_ref.set( { dl_name : {
-        'due_date': dl_datetime,
-        'status': False
-    } }, merge = True )
+    dl_ref.set( { dl_name : {'due_date': dl_datetime, 'status': False } }, merge = True )
     bot.send_message( int(userid), "Deadline added to your Assignment Deadlines!")
 
 ########## HELPER FUNCTION TO AUTO DELETE ASSIGNMENT ##########

@@ -32,6 +32,17 @@ docs2 = db.collection( "users" ).document( my_id ).collection( "mods" ).document
 
 docs2out = docs2.to_dict()
 
+# Assignment output for Assignment Deadlines function
+
+ass = db.collection( "users" ).document( my_id ).collection( "dl_data" ).document( "assignments" ).get().to_dict()
+
+for i in ass:
+    for x in i:
+        print(x)
+
+option = 'Orbital Milestone 2'
+#db.collection( "users" ).document( my_id ).collection( "dl_data" ).document( "assignments" ).update( { 'Orbital Milestone 2.status' : True } )
+
 # Lesson slots output
 
 slots = db.collection( "users" ).document( my_id ).collection( "mods" ).document( "ST2131" ).collection( "lessons" ).document( "ST2131 Lecture" ).get().to_dict()["timings"]
