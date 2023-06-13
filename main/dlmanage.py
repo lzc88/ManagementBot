@@ -421,6 +421,21 @@ def assignments_deadline( message, userid ):
     bot.send_message(message.chat.id, response, reply_markup=markup)
     bot.register_next_step_handler( message, choice1, userid )
 
+########## FUNCTION TO MANAGE DEADLINES DATA ##########
+def manage_deadlines_data( message, userid ):
+    # Display the options for managing deadlines
+    response = "Please select an option to manage deadlines:\n"
+    response += "1) Add Deadline\n"
+    response += "2) Delete Deadline\n"
+    response += "3) Return to Assignment deadlines"
+    markup = telebot.types.ReplyKeyboardMarkup(resize_keyboard=True, one_time_keyboard=True)
+    add_deadline_button = telebot.types.KeyboardButton("Add Deadline")
+    delete_deadline_button = telebot.types.KeyboardButton("Delete Deadline")
+    return_button = telebot.types.KeyboardButton("Return to Assignment deadlines")
+    markup.add(add_deadline_button).add(delete_deadline_button).add(return_button)
+    bot.send_message( int( userid ), response, reply_markup=markup)
+    bot.register_next_step_handler( message, choice1a, userid )
+
 ########## FUNCTIONS TO ADD DEADLINE ##########
 def add_dl_1( message, userid ):
     markup = telebot.types.ReplyKeyboardRemove()
