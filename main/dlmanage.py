@@ -671,7 +671,7 @@ def mark_incomplete_1(message, userid):
     else:
         response = "You do not have any assignments."
         bot.send_message(int(userid), response)
-        assignments_deadline(message)
+        assignments_deadline(message, userid)
 
 
 def mark_incomplete_2(message, userid):
@@ -1159,7 +1159,7 @@ def school_timetable( message, userid ):
             bot.send_message( int(userid), "You have not configured the timings for these lessons. Would you like to configure them now? The lesson slot numbers are required.\n\n" + unconfigured, reply_markup = markup )
             bot.register_next_step_handler( message, choice3a, userid, unconfigured_list )
     else: # If User has no mods
-        button1 = telebot.types.KeyboardButton( "Add modules" )
+        button1 = telebot.types.KeyboardButton( "Add module" )
         button2 = telebot.types.KeyboardButton( "Return to Main" )
         markup = telebot.types.ReplyKeyboardMarkup( resize_keyboard = True, one_time_keyboard = True )
         markup.add(button1).add(button2)
@@ -1240,7 +1240,7 @@ def unconfig( message, userid ):
     school_timetable( message, userid )
 
 ########## DATE FOR TESTING ##########
-test_date = datetime( 2023, 2, 28 )
+test_date = datetime( 2023, 5, 1 )
 ######################################
 
 ########## FUNCTION TO VIEW TIMETABLE ##########
@@ -1255,7 +1255,7 @@ def view_timetable( message, userid ):
         markup = telebot.types.ReplyKeyboardMarkup( resize_keyboard = True, one_time_keyboard = True )
         markup.add( button )
         bot.send_message( int(userid), "It is reading week, have a good rest! :)", reply_markup = markup )
-    elif read_end < test_date:
+    elif read_end < test_date and test_date < sem_end:
         button = telebot.types.KeyboardButton( "Return to Main")
         markup = telebot.types.ReplyKeyboardMarkup( resize_keyboard = True, one_time_keyboard = True )
         markup.add( button )
