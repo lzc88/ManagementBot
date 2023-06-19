@@ -2043,11 +2043,16 @@ def invalid_text( text ):
         
 #Implement this only when the server is active, if not local testing is just spam fest to all users
 
+PORT = int( os.environ.get( 'PORT',5000 ) )
+bot.run_webhooks( listen = "0.0.0.0", port = int(PORT), url_path = bottoken )
+
+
 def start_bot():
     # Send restart instructions to users
     """ send_restart_instructions() """
     # Start the infinite polling
-    bot.infinity_polling()
+    bot.run_webhooks( listen = "0.0.0.0", port = int(PORT), url_path = bottoken )
+    bot.set_webhook( url = "https://serene-oasis-47622.herokuapp.com/" + bottoken )
     
 start_bot()
 
