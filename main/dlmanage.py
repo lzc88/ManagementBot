@@ -399,11 +399,11 @@ def assignments_deadline(message, userid):
             next_button = telebot.types.KeyboardButton("Next page")
             markup.add( next_button ).add( previous_button )
         elif curr_page > 1: # If not on first page, no more pages
-            response += " Please click on the 'Previous page' button to return to the previous page."
+            response += "Please click on the 'Previous page' button to return to the previous page."
             previous_button = telebot.types.KeyboardButton("Previous page")
             markup.add( previous_button )
         elif end_index < len( deadlines_list ): # If there are more pages, first page
-            response += " Please click on the 'Next' button to view more deadlines."
+            response += "Please click on the 'Next' button to view more deadlines."
             next_button = telebot.types.KeyboardButton("Next page")
             markup.add( next_button )
         complete_button = telebot.types.KeyboardButton("Mark Assignments as complete")
@@ -510,16 +510,18 @@ def save_dl_details(message, dl_name, dl_datetime, userid):
 def del_dl_1(message, userid):
     deadlines = db.collection("users").document(userid).collection("dl_data").document("assignments").get().to_dict()
     if deadlines:
-        deadline_titles = list(deadlines.keys())
-        response = "Please select the deadline you want to delete:\n\n"
+        sorted_deadlines = sorted(deadlines.items(), key=lambda x: datetime.strptime(x[1]['due_date'].strftime("%A, %d/%m/%y %H%Mhrs"), "%A, %d/%m/%y %H%Mhrs"))
+        response = "Select the deadline to delete\n"
+        response += "Please select the corresponding deadline title:\n\n"
         markup = ReplyKeyboardMarkup(resize_keyboard=True, one_time_keyboard=True)
-        
-        for title in deadline_titles:
-            response += f"{title}\n"
+
+        for deadline in sorted_deadlines:
+            title = deadline[0]
+            response += f"- {title}\n"
             markup.add(telebot.types.KeyboardButton(title))
 
         markup.add(KeyboardButton('Back'))
-        response += "\n\n\n If you wish to delete ALL deadlines (including Canvas .ics data), please manually type in 'DELETE ALL DEADLINES'."
+        response += "\n\n If you wish to delete ALL deadlines (including Canvas .ics data), please manually type in 'DELETE_ALL_DEADLINES'."
         bot.send_message(int(userid), response, reply_markup=markup)
         bot.register_next_step_handler(message, del_dl_2, userid, deadlines)
     else:
@@ -531,7 +533,7 @@ def del_dl_2(message, userid, deadlines):
     option = message.text
     if option == 'Back':
         assignments_deadline(message, userid)
-    elif option.lower() == 'delete all deadlines':
+    elif option.lower() == 'delete_all_deadlines':
         delete_dl_all(message, userid)
     else:
         # Search for the deadline with the given title in dl_data collection
@@ -841,28 +843,28 @@ def check_event_reminders(user_id):
                     bot.send_message(user_id, reminder_message)
                     last_reminder_timestamps[title] = 'due'
 
-            elif time_remaining.total_seconds() <= 86400 and time_remaining.total_seconds() > 0:
-                # Send reminder if not already sent at this interval
-                if title not in last_reminder_timestamps or last_reminder_timestamps[title] != '24_hours':
-                    reminder_message = f"Your event '{title}' will start in 24 hours. Make sure you're prepared!"
-                    bot.send_message(user_id, reminder_message)
-                    last_reminder_timestamps[title] = '24_hours'
-
-            elif time_remaining.total_seconds() <= 3600 and time_remaining.total_seconds() > 0:
-                # Send reminder if not already sent at this interval
-                if title not in last_reminder_timestamps or last_reminder_timestamps[title] != '1_hour':
-                    reminder_message = f"Your event '{title}' will start in 1 hour. Make sure you're prepared!"
-                    bot.send_message(user_id, reminder_message)
-                    last_reminder_timestamps[title] = '1_hour'
-
             elif time_remaining.total_seconds() <= 300 and time_remaining.total_seconds() > 0:
                 # Send reminder if not already sent at this interval
                 if title not in last_reminder_timestamps or last_reminder_timestamps[title] != '5_minutes':
                     reminder_message = f"Your event '{title}' will start in 5 minutes. Get ready!"
                     bot.send_message(user_id, reminder_message)
                     last_reminder_timestamps[title] = '5_minutes'
-
-        # Wait for 1 minute before checking events again
+                    
+            elif time_remaining.total_seconds() <= 3600 and time_remaining.total_seconds() > 0:
+                # Send reminder if not already sent at this interval
+                if title not in last_reminder_timestamps or last_reminder_timestamps[title] != '1_hour':
+                    reminder_message = f"Your event '{title}' will start in 1 hour. Make sure you're prepared!"
+                    bot.send_message(user_id, reminder_message)
+                    last_reminder_timestamps[title] = '1_hour'
+                    
+            elif time_remaining.total_seconds() <= 86400 and time_remaining.total_seconds() > 0:
+                    # Send reminder if not already sent at this interval
+                    if title not in last_reminder_timestamps or last_reminder_timestamps[title] != '24_hours':
+                        reminder_message = f"Your event '{title}' will start in 24 hours. Make sure you're prepared!"
+                        bot.send_message(user_id, reminder_message)
+                        last_reminder_timestamps[title] = '24_hours'
+            
+        # Wait for 1 minute before checking events again  
         time.sleep(60) 
     
 # Delete events >24 hours past the event time
@@ -1064,28 +1066,28 @@ def delete_event(message):
     pp_data = pp_ref.get()
 
     if pp_data:
-        response = "Select the event to delete:\n"
-        response += "Please select the corresponding event title\n"
-        button_array = []
         event_docs = [doc for doc in pp_data]
-        for doc in event_docs:
+        sorted_events = sorted(event_docs, key=lambda x: x.to_dict().get('date'))
+        
+        response = "Select the event to delete\n"
+        response += "Please select the corresponding event title:\n\n"
+        markup = ReplyKeyboardMarkup(resize_keyboard=True, one_time_keyboard=True)
+        
+        for doc in sorted_events:
             event_title = doc.to_dict().get('title')
-            response += f"\n- {event_title}"
-            button = KeyboardButton(event_title)
-            button_array.append(button)
-
+            response += f"- {event_title}\n"
+            markup.add(telebot.types.KeyboardButton(event_title))
+           
         response += "\n\nIf you wish to delete all events, please type 'Delete_all_personal_planner'"
-        button_array.append(KeyboardButton("back"))
+        markup.add(KeyboardButton('Back'))
 
-        keyboard = ReplyKeyboardMarkup(resize_keyboard=True, one_time_keyboard=True)
-        keyboard.add(*button_array)
-
-        bot.send_message(message.chat.id, response, reply_markup=keyboard)
+        bot.send_message(message.chat.id, response, reply_markup=markup)
         bot.register_next_step_handler(message, process_delete_event, event_docs)
     else:
         bot.send_message(message.chat.id, "You do not have any events available to delete.")
         personal_planner(message)
-
+        
+        
 def process_delete_event(message, event_docs):
     user_id = str(message.from_user.id)
     event_title = message.text
