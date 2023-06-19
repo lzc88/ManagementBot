@@ -1591,13 +1591,25 @@ def handle_report_issues_choice(message):
     choice = message.text.lower()
 
     if choice == 'report bug':
+        # Replace the keyboard with a new keyboard containing only the "Return to Main" button
+        keyboard = ReplyKeyboardMarkup(resize_keyboard=True, one_time_keyboard=True)
+        keyboard.add(KeyboardButton("Return to Main"))
+
+        response = "Please provide details of the bug report:"
+        response += "\n\n\n If you wish to return to the main menu instead, please select 'Return to Main' button."
         # Ask for bug report details
-        bot.send_message(message.chat.id, "Please provide details of the bug report:")
-        bot.register_next_step_handler(message, confirm_bug_report, user_id, user_name)
+        bot.send_message(message.chat.id, response, reply_markup=keyboard)
+        bot.register_next_step_handler(message, handle_bug_report_choice, user_id, user_name)
     elif choice == 'provide feedback':
+        # Replace the keyboard with a new keyboard containing only the "Return to Main" button
+        keyboard = ReplyKeyboardMarkup(resize_keyboard=True, one_time_keyboard=True)
+        keyboard.add(KeyboardButton("Return to Main"))
+
+        response = "Please provide your feedback and suggestions:"
+        response += "\n\n\n If you wish to return to the main menu instead, please select 'Return to Main' button."
         # Ask for feedback details
-        bot.send_message(message.chat.id, "Please provide your feedback and suggestions:")
-        bot.register_next_step_handler(message, confirm_feedback, user_id, user_name)
+        bot.send_message(message.chat.id, response, reply_markup=keyboard)
+        bot.register_next_step_handler(message, handle_feedback_choice, user_id, user_name)
     elif choice == 'return to main':
         # Return to main menu
         main(message)
@@ -1605,10 +1617,31 @@ def handle_report_issues_choice(message):
         # Invalid choice, prompt again
         bot.send_message(message.chat.id, "Invalid choice. Please select either 'Report Bug', 'Provide Feedback', or 'Return to Main'.")
         bot.register_next_step_handler(message, handle_report_issues_choice)
+ 
+def handle_bug_report_choice(message, user_id, user_name):
+    choice = message.text.lower()
 
-def confirm_bug_report(message, user_id, user_name):
-    bug_report = message.text
+    if choice == 'return to main':
+        # Return to main menu
+        main(message)
+    else:
+        # Process bug report
+        bug_report = message.text
+        confirm_bug_report(message, user_id, user_name, bug_report)
 
+
+def handle_feedback_choice(message, user_id, user_name):
+    choice = message.text.lower()
+
+    if choice == 'return to main':
+        # Return to main menu
+        main(message)
+    else:
+        # Process feedback
+        feedback = message.text
+        confirm_feedback(message, user_id, user_name, feedback)        
+        
+def confirm_bug_report(message, user_id, user_name, bug_report):
     # Confirmation message
     confirmation_message = f"Hello {user_name}, may I check whether this is the bug you wish to report?\n\n"
     confirmation_message += bug_report
@@ -1645,16 +1678,14 @@ def handle_bug_report_confirmation(message, user_id, user_name, bug_report):
     elif choice == 'edit':
         # Prompt user to edit bug report
         bot.send_message(message.chat.id, "Please provide the edited bug report:")
-        bot.register_next_step_handler(message, confirm_bug_report, user_id, user_name)
+        bot.register_next_step_handler(message, handle_bug_report_choice, user_id, user_name)
     else:
         # Invalid choice, prompt again
         bot.send_message(message.chat.id, "Invalid choice. Please select either 'Yes' or 'Edit'.")
         bot.register_next_step_handler(message, handle_bug_report_confirmation, user_id, user_name, bug_report)
         
         
-def confirm_feedback(message, user_id, user_name):
-    feedback = message.text
-
+def confirm_feedback(message, user_id, user_name, feedback):
     # Confirmation message
     confirmation_message = f"Hello {user_name}, may I check whether this is the feedback you wish to provide?\n\n"
     confirmation_message += feedback
@@ -1692,11 +1723,12 @@ def handle_feedback_confirmation(message, user_id, user_name, feedback):
     elif choice == 'edit':
         # Prompt user to edit feedback
         bot.send_message(message.chat.id, "Please provide the edited feedback:")
-        bot.register_next_step_handler(message, confirm_feedback, user_id, user_name)
+        bot.register_next_step_handler(message, handle_feedback_choice, user_id, user_name)
     else:
         # Invalid choice, prompt again
         bot.send_message(message.chat.id, "Invalid choice. Please select either 'Yes' or 'Edit'.")
         bot.register_next_step_handler(message, handle_feedback_confirmation, user_id, user_name, feedback)
+
 
 
 # To retrieve the reports made
