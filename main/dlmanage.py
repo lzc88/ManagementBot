@@ -749,30 +749,41 @@ def del_ics( message, userid ):
 
 ########## FUNCTION TO RETRIEVE AND UPDATE .ics DATA ##########
 def retrieve_and_update_ics_data(userid):
-    ics_link = db.collection("users").document(userid).collection("cc_data").document("ics_link").get().to_dict()
-    if ics_link:
-        ics_link = ics_link.get('link')
+    ics_link_doc = db.collection("users").document(userid).collection("cc_data").document("ics_link").get().to_dict()
+    if ics_link_doc:
+        ics_link = ics_link_doc.get('link')
         curr_ics_data = db.collection("users").document(userid).collection("cc_data").document("assignments").get().to_dict()
         try:
             response = requests.get(ics_link)
             response.raise_for_status()
             ics_text = response.text
             cal = icalendar.Calendar.from_ical(ics_text)  # Parse the .ics content
+            updated_ics_data = {}  # Store updated assignment data
+
             for event in cal.walk('vevent'):
                 title = str(event.get("summary"))
                 due_date = event.get("dtstart").dt if event.get("dtstart") else None
-                status = False
+                status = curr_ics_data.get(title, {}).get("status", False)  # Retrieve status if it exists in curr_ics_data
+
                 if title and isinstance(title, str) and due_date:
                     # Ensure title is a non-empty string and due_date is not empty
-                    if curr_ics_data is not None and title not in curr_ics_data:
-                        db.collection("users").document(userid).collection("cc_data").document("assignments").set(
-                            {title: {"due_date": due_date, "status": status}}, merge=True)
+                    updated_ics_data[title] = {"due_date": due_date, "status": status}
+
+            # Delete deadlines that no longer exist in the .ics data
+            for existing_title in curr_ics_data.keys():
+                if existing_title not in updated_ics_data:
+                    db.collection("users").document(userid).collection("cc_data").document("assignments").update(
+                        {existing_title: firestore.DELETE_FIELD})
+
+            # Update the assignment data in the database
+            db.collection("users").document(userid).collection("cc_data").document("assignments").set(
+                updated_ics_data, merge=True)
 
         except requests.exceptions.RequestException as e:
             bot.send_message(int(userid), f"Error retrieving .ics file: {e}")
     else:
         pass
-
+    
 # END OF FUNCTION (1) Assignment Deadlines
 
 ###################################################################################################################################
