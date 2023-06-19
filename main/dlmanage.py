@@ -510,16 +510,18 @@ def save_dl_details(message, dl_name, dl_datetime, userid):
 def del_dl_1(message, userid):
     deadlines = db.collection("users").document(userid).collection("dl_data").document("assignments").get().to_dict()
     if deadlines:
-        deadline_titles = list(deadlines.keys())
-        response = "Please select the deadline you want to delete:\n\n"
+        sorted_deadlines = sorted(deadlines.items(), key=lambda x: datetime.strptime(x[1]['due_date'].strftime("%A, %d/%m/%y %H%Mhrs"), "%A, %d/%m/%y %H%Mhrs"))
+        response = "Select the deadline to delete\n"
+        response += "Please select the corresponding deadline title:\n\n"
         markup = ReplyKeyboardMarkup(resize_keyboard=True, one_time_keyboard=True)
-        
-        for title in deadline_titles:
-            response += f"{title}\n"
+
+        for deadline in sorted_deadlines:
+            title = deadline[0]
+            response += f"- {title}\n"
             markup.add(telebot.types.KeyboardButton(title))
 
         markup.add(KeyboardButton('Back'))
-        response += "\n\n\n If you wish to delete ALL deadlines (including Canvas .ics data), please manually type in 'DELETE ALL DEADLINES'."
+        response += "\n\n If you wish to delete ALL deadlines (including Canvas .ics data), please manually type in 'DELETE_ALL_DEADLINES'."
         bot.send_message(int(userid), response, reply_markup=markup)
         bot.register_next_step_handler(message, del_dl_2, userid, deadlines)
     else:
@@ -531,7 +533,7 @@ def del_dl_2(message, userid, deadlines):
     option = message.text
     if option == 'Back':
         assignments_deadline(message, userid)
-    elif option.lower() == 'delete all deadlines':
+    elif option.lower() == 'delete_all_deadlines':
         delete_dl_all(message, userid)
     else:
         # Search for the deadline with the given title in dl_data collection
@@ -1064,11 +1066,14 @@ def delete_event(message):
     pp_data = pp_ref.get()
 
     if pp_data:
-        response = "Select the event to delete:\n"
-        response += "Please select the corresponding event title\n\n"
-        markup = ReplyKeyboardMarkup(resize_keyboard=True, one_time_keyboard=True)
         event_docs = [doc for doc in pp_data]
-        for doc in event_docs:
+        sorted_events = sorted(event_docs, key=lambda x: x.to_dict().get('date'))
+        
+        response = "Select the event to delete\n"
+        response += "Please select the corresponding event title:\n\n"
+        markup = ReplyKeyboardMarkup(resize_keyboard=True, one_time_keyboard=True)
+        
+        for doc in sorted_events:
             event_title = doc.to_dict().get('title')
             response += f"- {event_title}\n"
             markup.add(telebot.types.KeyboardButton(event_title))
