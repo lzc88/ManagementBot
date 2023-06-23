@@ -1,1 +1,1 @@
-web: python dlmanage.py $PORT
+web: python3 dlmanage.py

@@ -16,7 +16,7 @@ import re
 import threading
 import pytz
 import math
-from keep_alive import keep_alive
+#from keep_alive import keep_alive
 
 
 ########## LOAD VARIABLES FROM .env ##########
@@ -130,8 +130,8 @@ def choice( text, userid ):
         report_issues( text )
     elif option == "retrieve_issues_reported":
         retrieve_issues_reported( text )
-        
-### Add for your functions here ###
+    else:
+        main( text )
 
 ########### FUNCTION TO GREET USER ##########      
 def get_greeting(current_time):
@@ -222,7 +222,7 @@ def choice1( message, userid ):
         manage_deadlines_data( message , userid )
     elif option == "Manage Calendar Data":
         manage_calendar_data( message, userid )
-    elif option == "Return to Main":
+    else:
         main( message )
 
 def choice1a( message, userid ):
@@ -1150,7 +1150,7 @@ def choice3( message, userid ): # Choice options for School Timetable function
         go_to_addmodule( message, userid )
     elif option == "School Timetable":
         school_timetable( message, userid )
-    elif option == "Return to Main":
+    else:
         main( message )
 
 def choice3a( message, userid, unconfigured_list ): 
@@ -1161,7 +1161,7 @@ def choice3a( message, userid, unconfigured_list ):
         prompt_unconfig( message, userid )
     elif option == "Ignore and proceed to view school timetable":
         view_timetable( message, userid )
-    elif option == "Return to Main":
+    else:
         main( message )
 
 ########## FUNCTION TO PROMPT USER TO CONFIG/UNCONFIG LESSON/VIEW TT ##########
@@ -1379,7 +1379,7 @@ def choice4( message, userid ):
         go_to_addmodule( message, userid )
     elif option == "Delete module":
         go_delete_module( message, userid )
-    elif option == "Return to Main":
+    else:
         main( message )
 
 ########## VIEW EXAM FUNCTION ##########
@@ -1456,7 +1456,7 @@ def choice5( message, userid ):
         go_delete_module( message, userid )
     elif option == "View modules":
         view_modules( message, userid )
-    elif option == "Return to Main":
+    else:
         main( message )
 
 ########## VIEW MODULES FUNCTION ##########
