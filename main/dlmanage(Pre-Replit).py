@@ -3,6 +3,7 @@ import dotenv
 import telebot
 import telebot.types
 from telebot.types import ReplyKeyboardMarkup, KeyboardButton, InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardRemove
+from telegram_bot_calendar import DetailedTelegramCalendar, LSTEP
 import firebase_admin
 from firebase_admin import firestore
 import datetime
@@ -16,18 +17,17 @@ import re
 import threading
 import pytz
 import math
-from keep_alive import keep_alive
-
 
 ########## LOAD VARIABLES FROM .env ##########
-dotenv.load_dotenv( dotenv_path = ".env" )
+dotenv.load_dotenv( dotenv_path = "config\.env" )
 
 ########## CREATING BOT INSTANCE ##########
+""" bottoken = os.getenv("bottoken") """
 bottoken = "6250045869:AAFzbpqRpxTfehyMOK5RHPgheiLLzBruAfk"
 bot = telebot.TeleBot(bottoken)
 
 ########## INITIALISE DB ##########
-cred = firebase_admin.credentials.Certificate("managementbot-72f56-firebase-adminsdk-7fs64-3c7bb1c603.json")
+cred = firebase_admin.credentials.Certificate("config\managementbot-72f56-firebase-adminsdk-7fs64-3c7bb1c603.json")
 dbapp = firebase_admin.initialize_app( cred )
 db = firestore.client()
 
@@ -53,8 +53,8 @@ approved_admins = ["966269150","291900788"]
 ########## NUSMOD API ENDPOINTS ##########
 replace_ay = "{acadYear}"
 replace_mod = "{moduleCode}"
-mods_basic_end = 'https://api.nusmods.com/v2/{acadYear}/moduleList.json'
-mod_details_end = 'https://api.nusmods.com/v2/{acadYear}/modules/{moduleCode}.json'
+mods_basic_end = os.getenv( "allmods" )
+mod_details_end = os.getenv( "moddetails" )
 
 ########## TEST DATES AY 22/23 ##########
 month_now = datetime.now().month
@@ -63,28 +63,28 @@ if month_now < 8:
     semester = 1
 else:
     semester = 0
-ay = "2023-2024"
+ay = "2022-2023"
 ### SEM START/END ###
 if semester == 0:
-    sem_start = datetime( 2023, 8, 14 )
-    sem_end = datetime( 2023, 12, 10 )
+    sem_start = datetime( 2022, 8, 8 )
+    sem_end = datetime( 2022, 12, 3 )
 else:
-    sem_start = datetime( 2023, 1, 15 )
-    sem_end = datetime( 2023, 5, 12 )
+    sem_start = datetime( 2023, 1, 9 )
+    sem_end = datetime( 2023, 5, 6 )
 ### RECESS WEEK START/END ###
 if semester == 0:
-    recess_start = datetime( 2023, 9, 23 )
-    recess_end = datetime( 2023, 10, 1 )
+    recess_start = datetime( 2022, 9, 17 )
+    recess_end = datetime( 2022, 9, 25 )
 else:
-    recess_start = datetime( 2024, 2, 24 )
-    recess_end = datetime( 2024, 3, 3 )
+    recess_start = datetime( 2023, 2, 18 )
+    recess_end = datetime( 2023, 2, 26 )
 ### READING WEEK START/END ###
 if semester == 0:
-    read_start = datetime( 2023, 11, 18 )
-    read_end = datetime( 2023, 11, 24 )
+    read_start = datetime( 2022, 11, 12 )
+    read_end = datetime( 2022, 11, 18 )
 else:
-    read_start = datetime( 2024, 4, 20 )
-    read_end = datetime( 2024, 4, 26 )
+    read_start = datetime( 2023, 4, 15 )
+    read_end = datetime( 2023, 4, 21 )
 
 days = ["Monday","Tuesday","Wednesday","Thursday","Friday","Saturday","Sunday"]
 
@@ -128,8 +128,6 @@ def choice( text, userid ):
         personal_planner( text )
     elif option == "Report Issues":
         report_issues( text )
-    elif option == "retrieve_issues_reported":
-        retrieve_issues_reported( text )
         
 ### Add for your functions here ###
 
@@ -154,8 +152,7 @@ def main( text ):
     button5 = telebot.types.KeyboardButton( "View Modules" )
     button6 = telebot.types.KeyboardButton( "Report Issues" )
     markup.add( button1 ).add( button2 ).add( button3 ).add( button4 ).add( button5 ).add( button6 )
-    user_timezone = pytz.timezone("Asia/Singapore")
-    user_time = datetime.now(user_timezone).time()
+    user_time = datetime.now().time()
     greeting = get_greeting(user_time)
     reply_text = f"{greeting} {text.chat.first_name}. What would you like to do?\n"
     reply_text += "Please select the corresponding buttons.\n\n"
@@ -175,7 +172,6 @@ def start( startmessage ):
     username = startmessage.chat.first_name # Obtain user's first name
     doc_ref = db.collection( "users" ).document( userid ) # Reference to check if User exists in DB
     doc = doc_ref.get()
-
     if doc.exists:  # True if User exists
         main(startmessage)
     
@@ -198,11 +194,7 @@ def start( startmessage ):
         bot.send_message( int(userid), response )
         bot.send_message( int(userid), "Before we begin, what modules are you taking this semester?\n\n( Type and send module codes one at a time. Do wait for me to respond before sending another code! )" )
         go_to_addmodule( startmessage, userid )
-      
-        with concurrent.futures.ThreadPoolExecutor() as executor:
-            executor.submit(check_deadline_reminders, userid)
-            executor.submit(check_event_reminders, userid)
-          
+
 ###################################################################################################################################
 
 # FUNCTION (1) Assignments Deadlines
@@ -301,7 +293,7 @@ def auto_del_assignment( userid, dl_name ):
 ########## FUNCTION FOR SENDING DEADLINE REMINDERS ##########
 def check_deadline_reminders(user_id):
     last_reminder_timestamps = {}  # Dictionary to store the last reminder timestamp for each assignment
-    user_timezone = pytz.timezone("Asia/Singapore")
+
     while True:
         # Retrieve deadlines for the specific user
         deadlines = get_dl(user_id)
@@ -312,44 +304,36 @@ def check_deadline_reminders(user_id):
                 continue  # Skip completed assignments
 
             title = deadline['title']
-            due_date = user_timezone.localize(datetime.strptime(deadline['due_date'], "%A, %d/%m/%y %H%Mhrs"))
-            current_date = datetime.now(user_timezone)
+            due_date = datetime.strptime(deadline['due_date'], "%A, %d/%m/%y %H%Mhrs")
+            current_date = datetime.now()
             time_remaining = due_date - current_date
 
             if time_remaining.total_seconds() <= 0:
                 # Deadline has passed, send reminder if not already sent
                 if title not in last_reminder_timestamps or last_reminder_timestamps[title] != 'due':
                     # Compose the reminder message
-                    formatted_due_date = due_date.strftime("%d/%m/%Y")
-                    formatted_due_time = due_date.strftime("%H%Mhrs")
-                    reminder_message = f"Your assignment '{title}' is due. (Due date: {formatted_due_date} {formatted_due_time})."
+                    reminder_message = f"Your assignment '{title}' is due. (Due date: {due_date})."
                     bot.send_message(user_id, reminder_message)
                     last_reminder_timestamps[title] = 'due'
 
             elif time_remaining.total_seconds() <= 3600 and time_remaining.total_seconds() > 0:
                 # Send reminder if not already sent at this interval
                 if title not in last_reminder_timestamps or last_reminder_timestamps[title] != '1_hour':
-                    formatted_due_date = due_date.strftime("%d/%m/%Y")
-                    formatted_due_time = due_date.strftime("%H%Mhrs")
-                    reminder_message = f"Your assignment '{title}' is due. (Due date: {formatted_due_date} {formatted_due_time})."
+                    reminder_message = f"Your assignment '{title}' will be due in 1 hour. (Due date: {due_date}). Don't forget to submit it!"
                     bot.send_message(user_id, reminder_message)
                     last_reminder_timestamps[title] = '1_hour'
 
             elif time_remaining.total_seconds() <= 6 * 3600 and time_remaining.total_seconds() > 0:
                 # Send reminder if not already sent at this interval
                 if title not in last_reminder_timestamps or last_reminder_timestamps[title] != '6_hours':
-                    formatted_due_date = due_date.strftime("%d/%m/%Y")
-                    formatted_due_time = due_date.strftime("%H%Mhrs")
-                    reminder_message = f"Your assignment '{title}' is due. (Due date: {formatted_due_date} {formatted_due_time})."
+                    reminder_message = f"Your assignment '{title}' will be due in 6 hours. (Due date: {due_date}). Don't forget to finalize and submit your work!"
                     bot.send_message(user_id, reminder_message)
                     last_reminder_timestamps[title] = '6_hours'
 
             elif time_remaining.total_seconds() <= 24 * 3600 and time_remaining.total_seconds() > 0:
                 # Send reminder if not already sent at this interval
                 if title not in last_reminder_timestamps or last_reminder_timestamps[title] != '24_hours':
-                    formatted_due_date = due_date.strftime("%d/%m/%Y")
-                    formatted_due_time = due_date.strftime("%H%Mhrs")
-                    reminder_message = f"Your assignment '{title}' is due. (Due date: {formatted_due_date} {formatted_due_time})."
+                    reminder_message = f"Your assignment '{title}' will be due in 24 hours. (Due date: {due_date}). Do begin on it if you haven't!"
                     bot.send_message(user_id, reminder_message)
                     last_reminder_timestamps[title] = '24_hours'
 
@@ -779,17 +763,14 @@ def retrieve_and_update_ics_data(userid):
             updated_ics_data = {}  # Store updated assignment data
 
             for event in cal.walk('vevent'):
-              title = str(event.get("summary"))
-              due_date = event.get("dtstart").dt if event.get("dtstart") else None
-              status = curr_ics_data.get(title, {}).get("status", False)  # Retrieve status if it exists in curr_ics_data
-      
-              if title and isinstance(title, str) and due_date:
-                  # Ensure title is a non-empty string and due_date is not empty
-                  local_tz = pytz.timezone("Asia/Singapore")  # Define the local timezone as "Asia/Singapore"
-                  due_date = due_date.astimezone(local_tz)  # Convert due_date to the defined local timezone
-                  due_date = due_date.replace(tzinfo=None)  # Remove the timezone information from due_date
-                  updated_ics_data[title] = {"due_date": due_date, "status": status}
-    
+                title = str(event.get("summary"))
+                due_date = event.get("dtstart").dt if event.get("dtstart") else None
+                status = curr_ics_data.get(title, {}).get("status", False)  # Retrieve status if it exists in curr_ics_data
+
+                if title and isinstance(title, str) and due_date:
+                    # Ensure title is a non-empty string and due_date is not empty
+                    updated_ics_data[title] = {"due_date": due_date, "status": status}
+
             # Delete deadlines that no longer exist in the .ics data
             for existing_title in curr_ics_data.keys():
                 if existing_title not in updated_ics_data:
@@ -842,24 +823,23 @@ def delete_personal_planner(message):
 
 def check_event_reminders(user_id):
     last_reminder_timestamps = {}  # Dictionary to store the last reminder timestamp for each event
-    user_timezone = pytz.timezone("Asia/Singapore")
+
     while True:
-        current_time = datetime.now(user_timezone)  # Get current time in GMT+8 timezone
         # Retrieve events from the user's personal planner
         events = get_ppe(user_id)
 
         # Check each event and send reminders if necessary
         for event in events:
             title = event['title']
-            event_time = user_timezone.localize(datetime.strptime(event['date'], "%d/%m/%Y %H%M"))  # Convert to datetime object
+            event_time = datetime.strptime(event['date'], "%d/%m/%Y %H%M")  # Convert to datetime object
+            current_time = datetime.now()
             time_remaining = event_time - current_time
+
             if time_remaining.total_seconds() <= 0:
                 # Event has passed, send reminder if not already sent
                 if title not in last_reminder_timestamps or last_reminder_timestamps[title] != 'due':
-                    # Format the event time
-                    formatted_event_time = event_time.strftime("%d/%m/%Y %H%Mhrs")
                     # Compose the reminder message
-                    reminder_message = f"Your event '{title}' is happening now (Event Time: {formatted_event_time}). Don't forget to attend!"
+                    reminder_message = f"Your event '{title}' is happening now. Don't forget to attend!"
                     bot.send_message(user_id, reminder_message)
                     last_reminder_timestamps[title] = 'due'
 
@@ -878,14 +858,14 @@ def check_event_reminders(user_id):
                     last_reminder_timestamps[title] = '1_hour'
                     
             elif time_remaining.total_seconds() <= 86400 and time_remaining.total_seconds() > 0:
-                # Send reminder if not already sent at this interval
-                if title not in last_reminder_timestamps or last_reminder_timestamps[title] != '24_hours':
-                    reminder_message = f"Your event '{title}' will start in 24 hours. Make sure you're prepared!"
-                    bot.send_message(user_id, reminder_message)
-                    last_reminder_timestamps[title] = '24_hours'
+                    # Send reminder if not already sent at this interval
+                    if title not in last_reminder_timestamps or last_reminder_timestamps[title] != '24_hours':
+                        reminder_message = f"Your event '{title}' will start in 24 hours. Make sure you're prepared!"
+                        bot.send_message(user_id, reminder_message)
+                        last_reminder_timestamps[title] = '24_hours'
             
         # Wait for 1 minute before checking events again  
-        time.sleep(60)
+        time.sleep(60) 
     
 # Delete events >24 hours past the event time
 def auto_del_event(userid, event_title):
@@ -907,27 +887,26 @@ def auto_del_event(userid, event_title):
 def personal_planner(message):
     user_id = str(message.from_user.id)
     events = get_ppe(user_id)
-    user_timezone = pytz.timezone("Asia/Singapore")
-    current_time = datetime.now(user_timezone)
 
     event_list = []
     for event_data in events:
-        event_data['date'] = user_timezone.localize(datetime.strptime(event_data['date'], "%d/%m/%Y %H%M"))  # Convert to datetime object
+        event_data['date'] = datetime.strptime(event_data['date'], "%d/%m/%Y %H%M")  # Convert to datetime object
 
-        if (event_data['date'] - current_time).total_seconds() < -24 * 3600:  # If the event is past due for more than 24 hours
+        if (event_data['date'] - datetime.now()).total_seconds() < -24 * 3600:  # If the event is past due for more than 24 hours
             auto_del_event(user_id, event_data['title'])
         else:
             event_list.append(event_data)
 
     if event_list:
         sorted_events = sorted(event_list, key=lambda x: x['date'])
+        current_time = datetime.now()
 
         response = "Your Personal Planner:\n\n"
         for index, event_data in enumerate(sorted_events, start=1):
             event_time = event_data['date']
             time_remaining = event_time - current_time
 
-            formatted_date = event_time.strftime("%A, %d/%m/%Y %H%Mhrs")
+            formatted_date = event_time.strftime("%A %d/%m/%Y %H%Mhrs")
 
             if time_remaining.total_seconds() < 0:  # If the event is past due
                 response += f"{index}) {event_data['title']}\n"
@@ -1589,7 +1568,7 @@ def report_issues(message):
     user_name = message.chat.first_name
 
     # Welcome message and question
-    welcome_message = f"Hello {user_name}, welcome to the report issue section.\n"
+    welcome_message = f"Hello {user_name}, welcome to the report issue section.\n\n"
     welcome_message += "May I know whether you want to report an issue such as bugs or provide feedback and suggestions?"
 
     # Buttons for bug report, feedback, and return to main
@@ -2031,7 +2010,7 @@ def handle_notes_input(message, state):
     state['feedback'] = feedback
 
     # Confirmation message
-    confirmation_message = "Hello, may I check whether this is the feedback you wish to provide?\n\n"
+    confirmation_message = f"Hello, may I check whether this is the feedback you wish to provide?\n\n"
     confirmation_message += feedback
 
     # Create a keyboard markup for confirmation
@@ -2080,15 +2059,6 @@ def update_issue_notes(issue):
 
 ###################################################################################################################################
 
-def uptime_timer(userid):
-    interval = 600  # 10 minutes in seconds
-
-    while True:
-        # Send the uptime check message to the user
-        bot.send_message(userid, "This is a 10 mins uptime check")
-
-        # Sleep for the specified interval
-        time.sleep(interval)
 
 
 ###################################################################################################################################
@@ -2117,4 +2087,3 @@ start_bot()
 
 ##### PLEASE ENSURE THIS STAYS AT THE BOTTOM OR FUNCTIONS WILL BREAK! #####
 ###################################################################################################################################
-
