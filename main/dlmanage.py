@@ -2107,15 +2107,12 @@ def invalid_text( text ):
         
 #Implement this only when the server is active, if not local testing is just spam fest to all users
 
-
-
 def start_bot():
     # Send restart instructions to users
     """ send_restart_instructions() """
     # Start the infinite polling
     bot.infinity_polling()
-
-keep_alive()
+    
 start_bot()
 
 ##### PLEASE ENSURE THIS STAYS AT THE BOTTOM OR FUNCTIONS WILL BREAK! #####
