@@ -23,7 +23,6 @@ import math
 dotenv.load_dotenv( dotenv_path = ".env" )
 
 ########## CREATING BOT INSTANCE ##########
-bottoken = "6250045869:AAFzbpqRpxTfehyMOK5RHPgheiLLzBruAfk"
 bot = telebot.TeleBot(bottoken)
 
 ########## INITIALISE DB ##########
