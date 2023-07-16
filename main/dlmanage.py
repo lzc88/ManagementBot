@@ -26,7 +26,8 @@ dotenv.load_dotenv( dotenv_path = ".env" )
 bot = telebot.TeleBot(bottoken)
 
 ########## INITIALISE DB ##########
-cred = firebase_admin.credentials.Certificate("managementbot-72f56-firebase-adminsdk-7fs64-3c7bb1c603.json")
+""" cred = firebase_admin.credentials.Certificate("managementbot-72f56-firebase-adminsdk-7fs64-3c7bb1c603.json") """
+cred = firebase_admin.credentials.Certificate("config\managementbot-72f56-firebase-adminsdk-7fs64-3c7bb1c603.json")
 dbapp = firebase_admin.initialize_app( cred )
 db = firestore.client()
 
@@ -56,9 +57,9 @@ mods_basic_end = 'https://api.nusmods.com/v2/{acadYear}/moduleList.json'
 mod_details_end = 'https://api.nusmods.com/v2/{acadYear}/modules/{moduleCode}.json'
 
 ########## TEST DATES AY 22/23 ##########
-month_now = datetime.now().month
+month_now = (datetime.now() + timedelta(hours=8)).month
 ### SEMESTER ###
-if month_now < 8:
+if month_now < 6:
     semester = 1
 else:
     semester = 0
@@ -129,6 +130,13 @@ def choice( text, userid ):
         report_issues( text )
     elif option == "retrieve_issues_reported":
         retrieve_issues_reported( text )
+    elif option == "get_nusmods":
+        get_nusmods_data( text, userid )
+    elif option == "/start":
+        start( text )
+    elif option == "delete_self":
+        bot.send_message(int(userid), "Deleting your data from the database ....")
+        delete_self_from_database( userid )
     else:
         main( text )
 
@@ -152,12 +160,14 @@ def main( text ):
     button4 = telebot.types.KeyboardButton( "Exam Timetable" )
     button5 = telebot.types.KeyboardButton( "View Modules" )
     button6 = telebot.types.KeyboardButton( "Report Issues" )
-    markup.add( button1 ).add( button2 ).add( button3 ).add( button4 ).add( button5 ).add( button6 )
+    button7 = telebot.types.KeyboardButton("get_nusmods")
+    markup.add( button1 ).add( button2 ).add( button3 ).add( button4 ).add( button5 ).add( button6 ).add(button7)
     user_timezone = pytz.timezone("Asia/Singapore")
     user_time = datetime.now(user_timezone).time()
     greeting = get_greeting(user_time)
     reply_text = f"{greeting} {text.chat.first_name}. What would you like to do?\n"
     reply_text += "Please select the corresponding buttons.\n\n"
+    reply_text += "THE BOT IS UNDER TESTING RIGHT NOW, PLEASE DO NOT USE IT!\n"
     reply_text += "1) Assignments Deadlines\n"
     reply_text += "2) Personal Planner\n"
     reply_text += "3) School Timetable\n"
@@ -318,19 +328,19 @@ def check_deadline_reminders(user_id):
             if time_remaining.total_seconds() <= 0:
                 # Deadline has passed, send reminder if not already sent
                 if title not in last_reminder_timestamps or last_reminder_timestamps[title] != 'due':
-                    # Compose the reminder message
-                    formatted_due_date = due_date.strftime("%d/%m/%Y")
-                    formatted_due_time = due_date.strftime("%H%Mhrs")
-                    reminder_message = f"Your assignment '{title}' is due. (Due date: {formatted_due_date} {formatted_due_time})."
-                    bot.send_message(user_id, reminder_message)
-                    last_reminder_timestamps[title] = 'due'
+                  # Compose the reminder message
+                  formatted_due_date = due_date.strftime("%d/%m/%Y")
+                  formatted_due_time = due_date.strftime("%H%Mhrs")
+                  reminder_message = f"Your assignment '{title}' is due. (Due date: {formatted_due_date} {formatted_due_time})."
+                  bot.send_message(user_id, reminder_message)
+                  last_reminder_timestamps[title] = 'due'
 
             elif time_remaining.total_seconds() <= 3600 and time_remaining.total_seconds() > 0:
                 # Send reminder if not already sent at this interval
                 if title not in last_reminder_timestamps or last_reminder_timestamps[title] != '1_hour':
                     formatted_due_date = due_date.strftime("%d/%m/%Y")
                     formatted_due_time = due_date.strftime("%H%Mhrs")
-                    reminder_message = f"Your assignment '{title}' is due. (Due date: {formatted_due_date} {formatted_due_time})."
+                    reminder_message = f"Your assignment '{title}' will be due in one hour! (Due date: {formatted_due_date} {formatted_due_time})."
                     bot.send_message(user_id, reminder_message)
                     last_reminder_timestamps[title] = '1_hour'
 
@@ -339,7 +349,7 @@ def check_deadline_reminders(user_id):
                 if title not in last_reminder_timestamps or last_reminder_timestamps[title] != '6_hours':
                     formatted_due_date = due_date.strftime("%d/%m/%Y")
                     formatted_due_time = due_date.strftime("%H%Mhrs")
-                    reminder_message = f"Your assignment '{title}' is due. (Due date: {formatted_due_date} {formatted_due_time})."
+                    reminder_message = f"Your assignment '{title}' will be due in 6 hours! (Due date: {formatted_due_date} {formatted_due_time})."
                     bot.send_message(user_id, reminder_message)
                     last_reminder_timestamps[title] = '6_hours'
 
@@ -348,14 +358,16 @@ def check_deadline_reminders(user_id):
                 if title not in last_reminder_timestamps or last_reminder_timestamps[title] != '24_hours':
                     formatted_due_date = due_date.strftime("%d/%m/%Y")
                     formatted_due_time = due_date.strftime("%H%Mhrs")
-                    reminder_message = f"Your assignment '{title}' is due. (Due date: {formatted_due_date} {formatted_due_time})."
+                    reminder_message = f"Your assignment '{title}' will be due in 24 hours! (Due date: {formatted_due_date} {formatted_due_time})."
                     bot.send_message(user_id, reminder_message)
                     last_reminder_timestamps[title] = '24_hours'
 
             elif time_remaining.total_seconds() <= 24 * 3600 * 3 and time_remaining.total_seconds() > 0:
                 # Send reminder if not already sent at this interval
-                if title not in last_reminder_timestamps or last_reminder_timestamps[title] != '3_days':
-                    reminder_message = f"Your assignment '{title}' will be due in 3 days. (Due date: {due_date}). Do begin on it if you haven't!"
+                if title not in last_reminder_timestamps or last_reminder_timestamps[title] != '3_days':            
+                    formatted_due_date = due_date.strftime("%d/%m/%Y")
+                    formatted_due_time = due_date.strftime("%H%Mhrs")
+                    reminder_message = f"Your assignment '{title}' will be due in 3 days. (Due date: {formatted_due_date} {formatted_due_time}). Do begin on it if you haven't!"
                     bot.send_message(user_id, reminder_message)
                     last_reminder_timestamps[title] = '3_days'
 
@@ -409,7 +421,7 @@ def assignments_deadline(message, userid):
         markup = ReplyKeyboardMarkup(resize_keyboard=True, one_time_keyboard=True)
         markup =ReplyKeyboardMarkup( resize_keyboard = True, one_time_keyboard = True )
         if curr_page > 1 and end_index < len( deadlines_list ): # If not on first page, and there are still more pages, can choose to next/prev
-            response += "Please click on the 'Next page' button to view more deadlines and 'Previous page' button to return to the previous page"
+            response += "Please click on the 'Next page' button to view more deadlines or 'Previous page' button to return to the previous page"
             previous_button = telebot.types.KeyboardButton("Previous page")
             next_button = telebot.types.KeyboardButton("Next page")
             markup.add( next_button ).add( previous_button )
@@ -418,7 +430,7 @@ def assignments_deadline(message, userid):
             previous_button = telebot.types.KeyboardButton("Previous page")
             markup.add( previous_button )
         elif end_index < len( deadlines_list ): # If there are more pages, first page
-            response += "Please click on the 'Next' button to view more deadlines."
+            response += "Please click on the 'Next page' button to view more deadlines."
             next_button = telebot.types.KeyboardButton("Next page")
             markup.add( next_button )
         complete_button = telebot.types.KeyboardButton("Mark Assignments as complete")
@@ -474,7 +486,7 @@ def add_dl_datetime(message, userid, dl_name):
     try:
         # Try parsing as "DD/MM/YYYY HHMM" format
         dl_time = datetime.strptime(dl_datetime, "%d/%m/%Y %H%M")
-        current_time = datetime.now()
+        current_time = datetime.now() + timedelta(hours=8)
 
         if dl_time < current_time:
             # The entered time is in the past
@@ -489,12 +501,13 @@ def add_dl_datetime(message, userid, dl_name):
         try:
             # Try parsing as "DD/MM HHMM" format
             dl_date, dl_time = dl_datetime.split(" ")
-            current_year = datetime.now().year
+            current_time = datetime.now() + timedelta(hours=8)
+            current_year = current_time.year
 
             dl_time_full = f"{dl_date}/{current_year} {dl_time}"
             dl_time_full = datetime.strptime(dl_time_full, "%d/%m/%Y %H%M")
 
-            if dl_time_full < datetime.now():
+            if dl_time_full < current_time:
                 # The entered time is in the past
                 bot.send_message(message.chat.id, "You need to enter a future date and time.")
                 # Prompt the user again to enter a valid time
@@ -730,7 +743,7 @@ def manage_calendar_data( message, userid ):
         bot.send_message( int(userid), response, reply_markup = markup )
         bot.register_next_step_handler( message, choice1b, userid )
     else: # No .ics link
-        response = "Please provide the link of your own Canvas calendar .ics data. The bot will retrieve the data from the provided link and store it.\n\n"
+        response = "Please first click on the button 'Provide Canvas Calendar .ics link' to proceed with uploading your .ics link. The bot will retrieve the data from the provided link and store it.\n\n"
         response += "Do note that providing calendar data will not affect deadlines which you have manually entered through 'Manage Deadlines data'. However, "
         response += "all deadlines imported from previous .ics file will be overridden if you update .ics data.\n\n"
         response += "To retrieve .ics data from Canvas, please go to canvas -> calendar (on the left side) -> Calendar feed (Bottom Right) "
@@ -804,6 +817,8 @@ def retrieve_and_update_ics_data(userid):
     else:
         pass
     
+
+    
 # END OF FUNCTION (1) Assignment Deadlines
 
 ###################################################################################################################################
@@ -865,21 +880,24 @@ def check_event_reminders(user_id):
             elif time_remaining.total_seconds() <= 300 and time_remaining.total_seconds() > 0:
                 # Send reminder if not already sent at this interval
                 if title not in last_reminder_timestamps or last_reminder_timestamps[title] != '5_minutes':
-                    reminder_message = f"Your event '{title}' will start in 5 minutes. Get ready!"
+                    formatted_event_time = event_time.strftime("%d/%m/%Y %H%Mhrs")
+                    reminder_message = f"Your event '{title}' will start in 5 minutes. Get ready! (Event Time: {formatted_event_time})"
                     bot.send_message(user_id, reminder_message)
                     last_reminder_timestamps[title] = '5_minutes'
                     
             elif time_remaining.total_seconds() <= 3600 and time_remaining.total_seconds() > 0:
                 # Send reminder if not already sent at this interval
                 if title not in last_reminder_timestamps or last_reminder_timestamps[title] != '1_hour':
-                    reminder_message = f"Your event '{title}' will start in 1 hour. Make sure you're prepared!"
+                    formatted_event_time = event_time.strftime("%d/%m/%Y %H%Mhrs")
+                    reminder_message = f"Your event '{title}' will start in 1 hour. Make sure you're prepared! (Event Time: {formatted_event_time})"
                     bot.send_message(user_id, reminder_message)
                     last_reminder_timestamps[title] = '1_hour'
                     
             elif time_remaining.total_seconds() <= 86400 and time_remaining.total_seconds() > 0:
                 # Send reminder if not already sent at this interval
                 if title not in last_reminder_timestamps or last_reminder_timestamps[title] != '24_hours':
-                    reminder_message = f"Your event '{title}' will start in 24 hours. Make sure you're prepared!"
+                    formatted_event_time = event_time.strftime("%d/%m/%Y %H%Mhrs")
+                    reminder_message = f"Your event '{title}' will start in 24 hours. Make sure you're prepared! (Event Time: {formatted_event_time})"
                     bot.send_message(user_id, reminder_message)
                     last_reminder_timestamps[title] = '24_hours'
             
@@ -991,7 +1009,7 @@ def add_event_datetime(message, event_name):
     try:
         # Try parsing as "DD/MM/YYYY HHMM" format
         event_time = datetime.strptime(event_datetime, "%d/%m/%Y %H%M")
-        current_time = datetime.now()
+        current_time = datetime.now() + timedelta(hours=8)
 
         if event_time < current_time:
             # The entered time is in the past
@@ -1006,12 +1024,14 @@ def add_event_datetime(message, event_name):
         try:
             # Try parsing as "DD/MM HHMM" format
             event_date, event_time = event_datetime.split(" ")
-            current_year = datetime.now().year
+            current_time = datetime.now() + timedelta(hours=8)
+            current_year = current_time.year
 
             event_time_full = f"{event_date}/{current_year} {event_time}"
             event_time_full = datetime.strptime(event_time_full, "%d/%m/%Y %H%M")
+            current_time = datetime.now() + timedelta(hours=8)
 
-            if event_time_full < datetime.now():
+            if event_time_full < current_time:
                 # The entered time is in the past
                 bot.send_message(message.chat.id, "You gonna need a time machine for this event. Please enter a future date and time.")
                 # Prompt the user again to enter a valid time
@@ -1273,8 +1293,13 @@ def unconfig( message, userid ):
     school_timetable( message, userid )
 
 ########## DATE FOR TESTING ##########
-test_date = datetime( 2023, 5, 1 )
+test_date = datetime( 2023, 9, 4 )
 ######################################
+
+########### NUSMODS IMPORT TEST ###################
+
+
+####################################################
 
 ########## FUNCTION TO VIEW TIMETABLE ##########
 def view_timetable( message, userid ):
@@ -1382,51 +1407,90 @@ def choice4( message, userid ):
         main( message )
 
 ########## VIEW EXAM FUNCTION ##########
-def view_exams( message, userid ):
+def view_exams(message, userid):
     if sem_end < test_date:
-        button = telebot.types.KeyboardButton( "Return to Main")
-        markup = telebot.types.ReplyKeyboardMarkup( resize_keyboard = True, one_time_keyboard = True )
-        markup.add( button )
-        bot.send_message( int(userid), "The semester has ended, have a good break! :)", reply_markup = markup )
+        button = telebot.types.KeyboardButton("Return to Main")
+        markup = telebot.types.ReplyKeyboardMarkup(resize_keyboard=True, one_time_keyboard=True)
+        markup.add(button)
+        bot.send_message(int(userid), "The semester has ended, have a good break! :)", reply_markup=markup)
     else:
-        doc_ref = db.collection( "users" ).document( userid ).collection( "exam" ).document( "timings" )
-        doc = doc_ref.get().to_dict() # Returns a dictionary where the keys are module codes and items are the respective exam timings. Can be empty
+        doc_ref = db.collection("users").document(userid).collection("exam").document("timings")
+        doc = doc_ref.get().to_dict()  # Returns a dictionary where the keys are module codes and items are the respective exam timings. Can be empty
         output = ""
         exam_list = []
+        exam_time_dict = {}  # Dictionary to track exam times and module codes
+
         for mod_code in doc:
-            exam_list.append( mod_code )
-        exam_list = sorted( exam_list, key = lambda x: doc[x][0][5:7] )
+            exam_list.append(mod_code)
+            exam_datetime_str = doc[mod_code][0]
+            exam_datetime = datetime.fromisoformat(exam_datetime_str[:-1])  # Convert ISO string to datetime object
+            exam_datetime_gmt8 = exam_datetime + timedelta(hours=8)  # Convert to GMT+8
+
+            start_time_str_gmt8 = exam_datetime_gmt8.strftime("%d/%m/%Y %H:%Mhrs")  # Format start time in GMT+8
+
+            if exam_datetime_gmt8.time() in exam_time_dict:
+                exam_time_dict[exam_datetime_gmt8.time()].append(mod_code)
+            else:
+                exam_time_dict[exam_datetime_gmt8.time()] = [mod_code]
+
+        # Sort exam_list based on countdown
+        exam_list = sorted(exam_list, key=lambda x: datetime.fromisoformat(doc[x][0][:-5]).replace(tzinfo=pytz.UTC))
+
         for mod_code in exam_list:
-            dd = doc[mod_code][0][8:10] # Day of exam
+            dd = doc[mod_code][0][8:10]  # Day of exam
             mm = doc[mod_code][0][5:7]
             yy = doc[mod_code][0][:4]
             date = f'{dd}/{mm}/{yy}'
-            duration = doc[mod_code][1] # Duration of exam
-            cd = (datetime( int(yy), int(mm), int(dd) ) - test_date).days
+        
+            exam_datetime_str = doc[mod_code][0]
+            exam_datetime = datetime.fromisoformat(exam_datetime_str[:-1])  # Convert ISO string to datetime object
+            exam_datetime_gmt8 = exam_datetime + timedelta(hours=8)  # Convert to GMT+8
+            exam_date_gmt8 = exam_datetime_gmt8.strftime("%A, %d/%m/%Y")  # Format exam date in GMT+8 with day and date
+            start_time_str_gmt8 = exam_datetime_gmt8.strftime("%H%Mhrs")  # Format start time in GMT+8
+            current_time = datetime.now() + timedelta(hours=8)
+            duration = doc[mod_code][1]  # Duration of exam
+            cd = (exam_datetime_gmt8 - current_time).total_seconds() // 3600  # Calculate countdown in hours
             if cd >= 0:
-                output += f'{mod_code} Finals\nDate: { date }\nDuration: { duration } minutes\nCountdown: {cd} days\n\n'
-        if output == "": # If the User does not have any exams
-            all_mods = db.collection( "users" ).document( userid ).collection( "all_mods" ).document( "all_mods" ).get().to_dict()
-            if len( all_mods ) > 0:
-                button = telebot.types.KeyboardButton( "Return to Main" )
-                markup = telebot.types.ReplyKeyboardMarkup( resize_keyboard = True, one_time_keyboard = True )
+                days = int(cd // 24)  # Extract the number of days
+                hours = int(cd % 24)  # Extract the remaining hours
+                output += f'{mod_code} Finals\nDate: {exam_date_gmt8}\nStart Time: {start_time_str_gmt8}\nDuration: {duration} minutes\nCountdown: {days} days {hours} hours\n\n'
+
+        if output == "":  # If the User does not have any exams
+            all_mods = db.collection("users").document(userid).collection("all_mods").document("all_mods").get().to_dict()
+            if len(all_mods) > 0:
+                button = telebot.types.KeyboardButton("Return to Main")
+                markup = telebot.types.ReplyKeyboardMarkup(resize_keyboard=True, one_time_keyboard=True)
                 markup.add(button)
-                bot.send_message( int(userid), "You have no examinations! :)", reply_markup = markup )
+                bot.send_message(int(userid), "You have no examinations! :)", reply_markup=markup)
             else:
-                button1 = telebot.types.KeyboardButton( "Add module" )
-                button2 = telebot.types.KeyboardButton( "Return to Main" )
-                markup = telebot.types.ReplyKeyboardMarkup( resize_keyboard = True, one_time_keyboard = True )
-                markup.add( button1 ).add( button2 )
-                bot.send_message( int(userid), "You have no modules, please proceed to add modules.", reply_markup = markup )
-                bot.register_next_step_handler( message, choice4, userid ) # Next step based on User's choice
+                button1 = telebot.types.KeyboardButton("Add module")
+                button2 = telebot.types.KeyboardButton("Return to Main")
+                markup = telebot.types.ReplyKeyboardMarkup(resize_keyboard=True, one_time_keyboard=True)
+                markup.add(button1).add(button2)
+                bot.send_message(int(userid), "You have no modules, please proceed to add modules.", reply_markup=markup)
+                bot.register_next_step_handler(message, choice4, userid)  # Next step based on User's choice
         else:
-            button1 = telebot.types.KeyboardButton( "Add module" )
-            button2 = telebot.types.KeyboardButton( "Delete module" )
-            button3 = telebot.types.KeyboardButton( "Return to Main" )
-            markup = telebot.types.ReplyKeyboardMarkup( resize_keyboard = True, one_time_keyboard = True )
-            markup.add( button1 ).add( button2 ).add( button3 )
-            bot.send_message( int(userid), f"Here are your exam dates for AY {ay.replace( '-', '/' )} Semester {semester+1}:\n\n{output}", reply_markup = markup )
-            bot.register_next_step_handler( message, choice4, userid )
+            button1 = telebot.types.KeyboardButton("Add module")
+            button2 = telebot.types.KeyboardButton("Delete module")
+            button3 = telebot.types.KeyboardButton("Return to Main")
+            markup = telebot.types.ReplyKeyboardMarkup(resize_keyboard=True, one_time_keyboard=True)
+            markup.add(button1).add(button2).add(button3)
+            bot.send_message(int(userid), f"Here are your exam dates for AY {ay.replace('-', '/')} "
+                                          f"Semester {semester + 1}:\n\n{output}", reply_markup=markup)
+
+            # Check for exam time clashes
+            clash_message = ""
+            for exam_time, modules in exam_time_dict.items():
+                if len(modules) > 1 and len(set([doc[mod][0] for mod in modules])) == 1:
+                    clash_modules = [mod for mod in modules]
+                    exam_datetime = datetime.fromisoformat(doc[clash_modules[0]][0][:-1]).astimezone(pytz.timezone("Asia/Singapore"))
+                    exam_time = (exam_datetime).strftime("%A, %d/%m/%Y %H%Mhrs")  # Format exam time in GMT+8 with day and date
+                    clash_message += f"Your Modules {' and '.join(clash_modules)} have a clash in exam time! (Exam Time: {exam_time})\n"
+
+            if clash_message != "":
+                bot.send_message(int(userid), clash_message)
+
+            bot.register_next_step_handler(message, choice4, userid)
 
 
 # END OF FUNCTION (4) Exam Timetable
@@ -1520,7 +1584,7 @@ def add_module( message, userid ):
                     add_exam( userid, formtext, 0)
                 bot.send_message( int(userid), "Ok, I have added " + formtext + ": " + title + ", to your modules." ) # Reply message
             else:
-                bot.send_message( int(userid), f"{formtext}: {title}, is not available in Semester {mod_sem}." )
+                bot.send_message( int(userid), f"{formtext}: {title}, is only available in Semester {mod_sem}." )
         button1 = telebot.types.KeyboardButton( "View modules" )
         button2 = telebot.types.KeyboardButton( "Add module" )
         button3 = telebot.types.KeyboardButton( "Delete module" )
@@ -2089,6 +2153,164 @@ def uptime_timer(userid):
         # Sleep for the specified interval
         time.sleep(interval)
 
+def delete_self_from_database(userid):
+    users_collection = db.collection("users")
+    
+    # Delete the user document from the "users" collection
+    user_document = users_collection.document(userid)
+    user_document.delete()
+    
+    # Delete all subcollections under the user document
+    subcollections = user_document.collections()
+    for subcollection in subcollections:
+        delete_collection(subcollection)
+
+    # Confirm the deletion to the user
+    bot.send_message(int(userid), "Your data has been successfully deleted. Please type /start to reinitialise the bot.")
+
+def delete_collection(collection_ref):
+    batch_size = 20
+    docs = collection_ref.limit(batch_size).get()
+    
+    deleted = 0
+    for doc in docs:
+        doc.reference.delete()
+        deleted += 1
+    
+    if deleted >= batch_size:
+        return delete_collection(collection_ref)
+
+
+####################### NUSMODS .ics IMPORT TEST CODE #####################################
+
+
+def get_nusmods_data(message, userid):
+    timetable_ref = db.collection("users").document(userid).collection("nus_mods").document("timetable")
+    timetable_doc = timetable_ref.get()
+
+    if timetable_doc.exists:
+        doc_data = timetable_doc.to_dict()
+        ics_file_attached = doc_data.get("ics_file_attached", False)
+        class_data = doc_data.get("class_data")
+
+        if ics_file_attached:
+            bot.send_message(int(userid), "Your .ics data exists.")
+            if class_data:
+                pass
+            else:
+                bot.send_message(int(userid), "No class data available. Please upload a .ics file.")
+        else:
+            bot.send_message(int(userid), "Please upload a .ics file with class data.")
+            bot.register_next_step_handler(message, upload_ics_file, userid)
+    else:
+        # Create the timetable document
+        timetable_ref.set({
+            "ics_file_attached": False,
+            "class_data": {}
+        })
+
+        bot.send_message(int(userid), "Please upload a .ics file with class data.")
+        bot.register_next_step_handler(message, upload_ics_file, userid)
+
+    return
+
+
+def upload_ics_file(message, userid):
+    if message.content_type == 'document':
+        file_info = bot.get_file(message.document.file_id)
+        downloaded_file = bot.download_file(file_info.file_path)
+        ics_file_data = downloaded_file.decode('utf-8')
+
+        # Extract the class data from the .ics file
+        class_data = extract_class_data(ics_file_data)
+
+        # Store the class data in Firestore
+        class_data_ref = db.collection("users").document(userid).collection("nus_mods").document("class_data")
+        class_data_ref.set(class_data)
+
+        # Update the "timetable" document to indicate the .ics file is attached
+        timetable_ref = db.collection("users").document(userid).collection("nus_mods").document("timetable")
+        timetable_ref.update({
+            "ics_file_attached": True,
+            "ics_file_data": ics_file_data
+        })
+
+        bot.send_message(int(userid), "ICS file uploaded successfully.")
+        main( message )
+    else:
+        bot.send_message(int(userid), "Please upload a .ics file.")
+
+    return
+
+
+def extract_class_data(ics_data):
+    events = re.findall(r"BEGIN:VEVENT(.*?)END:VEVENT", ics_data, re.DOTALL)
+
+    class_data = {}
+    for event in events:
+        summary = get_value(event, "SUMMARY")
+        description = get_value(event, "DESCRIPTION")
+
+        number = extract_number_from_description(description)
+
+        if number is not None:  # Ignore events without a valid number
+            module_name = summary.split('\n')[0]  # Extract the module name without the field value
+
+            if module_name not in class_data:
+                class_data[module_name] = {
+                    "number": number
+                }
+
+    return class_data
+
+def get_value(event, field):
+    start = event.find(field + ":")
+    if start != -1:
+        end = event.find("END:VEVENT", start)
+        value = event[start:end].split(":", 1)[1].strip()
+        return value
+
+    return ""  # Return an empty string if the field is not found
+
+
+def extract_number_from_description(description):
+    match = re.search(r"(?:Group|Tutorial Group)\s+(\S+)", description.replace('\n', ' '))
+    if match:
+        return match.group(1)
+    match = re.search(r"(?:Group|Tutorial Group)\s+(.+)", description.replace('\n', ' '))
+    if match:
+        return match.group(1)
+    return None
+
+
+def process_class_data(class_data, userid):
+    processed_class_data = {}
+
+    for module_name, module_data in class_data.items():
+        summary = module_name
+        number = module_data['number']
+
+        # Ignore events with the word "exam" in the summary
+        if 'exam' not in summary.lower():
+            class_name = f"{module_name}: {number}"
+            processed_class_data[module_name] = {
+                "number": number
+            }
+
+    # Store the processed class data in Firestore
+    class_data_ref = db.collection("users").document(userid).collection("nus_mods").document("class_data")
+    class_data_ref.set(processed_class_data)
+
+    return
+
+
+# Helper function to download the .ics file data
+def download_file(file_url):
+    response = requests.get(file_url)
+    ics_file_data = response.text
+    return ics_file_data
+ 
+
 
 ###################################################################################################################################
 ##### PLEASE ENSURE THIS STAYS AT THE BOTTOM OR FUNCTIONS WILL BREAK! #####
@@ -2096,7 +2318,8 @@ def uptime_timer(userid):
 @bot.message_handler()
 def invalid_text( text ):
     bot.send_message( text.chat.id, "Invalid entry, you will be returned to the Main Menu." )
-    main( text )
+    main ( text )
+
     
 """ def send_restart_instructions():
     all_user_ids = get_all_user_ids()
@@ -2104,14 +2327,33 @@ def invalid_text( text ):
         restart_message = "The server has restarted. To reinitialize the bot functionality, please send the /start command."
         bot.send_message(user_id, restart_message) """
         
+def reboot_reminder():
+    all_user_ids = get_all_user_ids()
+    for user_id in all_user_ids:
+        deadlines_list = get_dl(user_id)
+        if deadlines_list:
+            check_deadline_reminders(user_id)
+        else:
+            pass
+    for user_id in all_user_ids:
+        event_list = get_ppe(user_id)
+        if event_list:
+            check_event_reminders(user_id)
+        else:
+            pass
+        
+        
 #Implement this only when the server is active, if not local testing is just spam fest to all users
+
+
 
 def start_bot():
     # Send restart instructions to users
     """ send_restart_instructions() """
     # Start the infinite polling
     bot.infinity_polling()
-    
+
+#keep_alive()
 start_bot()
 
 ##### PLEASE ENSURE THIS STAYS AT THE BOTTOM OR FUNCTIONS WILL BREAK! #####
