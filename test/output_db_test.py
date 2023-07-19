@@ -45,24 +45,30 @@ option = 'Orbital Milestone 2'
 
 # Lesson slots output
 
-slots = db.collection( "users" ).document( my_id ).collection( "mods" ).document( "ST2131" ).collection( "lessons" ).document( "ST2131 Lecture" ).get().to_dict()["timings"]
-print(slots)
+#slots = db.collection( "users" ).document( my_id ).collection( "mods" ).document( "ST2131" ).collection( "lessons" ).document( "ST2131 Lecture" ).get().to_dict()["timings"]
+#print(slots)
 
 # Lesson list output for school timetable function
 
 userid = my_id
-week_no = 4
-week_ref = db.collection( "users" ).document( userid ).collection( "timetable" ).document( "this_week" )
-this_week = week_ref.get().to_dict()
-if week_no not in this_week:
-    lesson_list = []
-    mods = db.collection( "users" ).document( userid ).collection( "mods" ).stream()
-    for mod in mods:
-        lesson_types = db.collection( "users" ).document( userid ).collection( "mods" ).document( mod.id ).collection( "lessons" ).stream()
-        for lesson in lesson_types:
-            slots = db.collection( "users" ).document( userid ).collection( "mods" ).document( mod.id ).collection( "lessons" ).document( lesson.id ).get().to_dict()["timings"]
-            for slot in slots:
-                if week_no in slot["weeks"]:
-                    lesson_list.append( slot )
+#week_no = 4
+#week_ref = db.collection( "users" ).document( userid ).collection( "timetable" ).document( "this_week" )
+#this_week = week_ref.get().to_dict()
+#if week_no not in this_week:
+#    lesson_list = []
+#    mods = db.collection( "users" ).document( userid ).collection( "mods" ).stream()
+#    for mod in mods:
+#        lesson_types = db.collection( "users" ).document( userid ).collection( "mods" ).document( mod.id ).collection( "lessons" ).stream()
+#        for lesson in lesson_types:
+#            slots = db.collection( "users" ).document( userid ).collection( "mods" ).document( mod.id ).collection( "lessons" ).document( lesson.id ).get().to_dict()["timings"]
+#            for slot in slots:
+#                if week_no in slot["weeks"]:
+#                    lesson_list.append( slot )
 
-sorted_tt = sorted(sorted( lesson_list, key=lambda x: x["startTime"] ), key = lambda x: days.index( x["day"] ) )
+#sorted_tt = sorted(sorted( lesson_list, key=lambda x: x["startTime"] ), key = lambda x: days.index( x["day"] ) )
+
+chester = "966269150"
+
+class_data = db.collection( "users" ).document( chester ).collection( "nus_mods" ).document( "class_data" ).get().to_dict()
+for i in class_data:
+    print( type(class_data[i]) )
