@@ -1,4 +1,4 @@
-![alt_text](readmepics/images/image1.png)
+![alt_text](readmepics/image1.png)
 
 
 
