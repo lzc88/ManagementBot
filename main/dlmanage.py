@@ -1181,7 +1181,7 @@ def choice3a( message, userid, unconfigured_list ):
     elif option == "Import nusmods calendar data":
         get_nusmods_data( message , userid )
     elif option == "Auto configure lessons with nusmods calendar data":
-        ics_configure_lessons_bychao( message , userid )
+        ics_configure_lessons( message , userid )
     else:
         main( message )
 
@@ -1302,23 +1302,28 @@ test_date = datetime( 2023, 9, 4 )
 
 ########### NUSMODS IMPORT TEST ###################
 
-def ics_configure_lessons_bychao( message, userid ):
-    ics_timetable = db.collection( "users" ).document( userid ).collection( "nus_mods" ).document( "class_data" ).get().to_dict()
-    manual_mods = db.collection( "users" ).document( userid ).collection( "all_mods" ).document( "all_mods" ).get().to_dict()
-    for mod_lesson in ics_timetable:
-        mod_code = mod_lesson.split( maxsplit = 1 )[0]
-        if mod_code not in manual_mods:
-            continue
-        else:
-            slot = ics_timetable[mod_lesson]["number"]
-            mod_lesson = mod_lesson.split( maxsplit = 1 )[1][:-1]
-            all_lessons_req = requests.get( mod_details_end.replace( replace_ay, ay ).replace( replace_mod, mod_code ) ).json()
-            all_lessons = all_lessons_req["semesterData"][semester]['timetable'] # Retrieve all lesson slots of a module for the current semester
-            for item in all_lessons: # For each lesson slot
-                if item['classNo'] == slot and item['lessonType'] == mod_lesson: # To filter the lesson slot that corresponds to User's input
-                    db.collection( "users" ).document( userid ).collection( "mods" ).document( mod_code ).collection( "lessons" ).document( f'{mod_code} {mod_lesson}' ).update( {"timings": firestore.ArrayUnion([item])})
-                    db.collection( "users" ).document( userid ).collection( "mods" ).document( mod_code ).collection( "lessons" ).document( f'{mod_code} {mod_lesson}' ).update( {"config" : True} )
-    school_timetable( message, userid )
+def ics_configure_lessons( message, userid ):
+    ics_attached = db.collection( "users" ).document( userid ).collection( "nus_mods" ).document( "timetable" ).get().to_dict()[ "ics_file_attached" ]
+    if ics_attached:
+        ics_timetable = db.collection( "users" ).document( userid ).collection( "nus_mods" ).document( "class_data" ).get().to_dict()
+        manual_mods = db.collection( "users" ).document( userid ).collection( "all_mods" ).document( "all_mods" ).get().to_dict()
+        for mod_lesson in ics_timetable:
+            mod_code = mod_lesson.split( maxsplit = 1 )[0]
+            if mod_code not in manual_mods:
+                continue
+            else:
+                slot = ics_timetable[mod_lesson]["number"]
+                mod_lesson = mod_lesson.split( maxsplit = 1 )[1][:-1]
+                all_lessons_req = requests.get( mod_details_end.replace( replace_ay, ay ).replace( replace_mod, mod_code ) ).json()
+                all_lessons = all_lessons_req["semesterData"][semester]['timetable'] # Retrieve all lesson slots of a module for the current semester
+                for item in all_lessons: # For each lesson slot
+                    if item['classNo'] == slot and item['lessonType'] == mod_lesson: # To filter the lesson slot that corresponds to User's input
+                        db.collection( "users" ).document( userid ).collection( "mods" ).document( mod_code ).collection( "lessons" ).document( f'{mod_code} {mod_lesson}' ).update( {"timings": firestore.ArrayUnion([item])})
+                        db.collection( "users" ).document( userid ).collection( "mods" ).document( mod_code ).collection( "lessons" ).document( f'{mod_code} {mod_lesson}' ).update( {"config" : True} )
+        bot.send_message( int(userid), "Your timetable has been synced with NUSMods! Take note that only lessons for modules you have manually added will be configured." )
+        school_timetable( message, userid )
+    else:
+        bot.send_message( int(userid), "You do not have an .ics file attached. Please proceed to upload one.")
 
 def get_nusmods_data(message, userid):
     timetable_ref = db.collection("users").document(userid).collection("nus_mods").document("timetable")
