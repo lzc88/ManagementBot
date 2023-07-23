@@ -1302,7 +1302,7 @@ test_date = datetime( 2023, 9, 4 )
 
 ########### NUSMODS IMPORT TEST ###################
 
-def ics_configure_lessons_bychao( message, userid ):
+def ics_configure_lessons_bychao( userid ):
     ics_timetable = db.collection( "users" ).document( userid ).collection( "nus_mods" ).document( "class_data" ).get().to_dict()
     manual_mods = db.collection( "users" ).document( userid ).collection( "all_mods" ).document( "all_mods" ).get().to_dict()
     for mod_lesson in ics_timetable:
@@ -1316,8 +1316,8 @@ def ics_configure_lessons_bychao( message, userid ):
             all_lessons = all_lessons_req["semesterData"][semester]['timetable'] # Retrieve all lesson slots of a module for the current semester
             for item in all_lessons: # For each lesson slot
                 if item['classNo'] == slot and item['lessonType'] == mod_lesson: # To filter the lesson slot that corresponds to User's input
-                    db.collection( "users" ).document( userid ).collection( "mods" ).document( mod_code ).collection( "lessons" ).document( mod_lesson ).update( {"timings": firestore.ArrayUnion([item])})
-                    db.collection( "users" ).document( userid ).collection( "mods" ).document( mod_code ).collection( "lessons" ).document( mod_lesson ).update( {"config" : True} )
+                    db.collection( "users" ).document( userid ).collection( "mods" ).document( mod_code ).collection( "lessons" ).document( f'{mod_code} {mod_lesson}' ).update( {"timings": firestore.ArrayUnion([item])})
+                    db.collection( "users" ).document( userid ).collection( "mods" ).document( mod_code ).collection( "lessons" ).document( f'{mod_code} {mod_lesson}' ).update( {"config" : True} )
     school_timetable( message, userid )
 
 def get_nusmods_data(message, userid):
