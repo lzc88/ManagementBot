@@ -23,6 +23,7 @@ import math
 dotenv.load_dotenv( dotenv_path = ".env" )
 
 ########## CREATING BOT INSTANCE ##########
+bottoken = "6250045869:AAFzbpqRpxTfehyMOK5RHPgheiLLzBruAfk"
 bot = telebot.TeleBot(bottoken)
 
 ########## INITIALISE DB ##########
@@ -130,8 +131,6 @@ def choice( text, userid ):
         report_issues( text )
     elif option == "retrieve_issues_reported":
         retrieve_issues_reported( text )
-    elif option == "get_nusmods":
-        get_nusmods_data( text, userid )
     elif option == "/start":
         start( text )
     elif option == "delete_self":
@@ -160,8 +159,7 @@ def main( text ):
     button4 = telebot.types.KeyboardButton( "Exam Timetable" )
     button5 = telebot.types.KeyboardButton( "View Modules" )
     button6 = telebot.types.KeyboardButton( "Report Issues" )
-    button7 = telebot.types.KeyboardButton("get_nusmods")
-    markup.add( button1 ).add( button2 ).add( button3 ).add( button4 ).add( button5 ).add( button6 ).add(button7)
+    markup.add( button1 ).add( button2 ).add( button3 ).add( button4 ).add( button5 ).add( button6 )
     user_timezone = pytz.timezone("Asia/Singapore")
     user_time = datetime.now(user_timezone).time()
     greeting = get_greeting(user_time)
@@ -1180,6 +1178,10 @@ def choice3a( message, userid, unconfigured_list ):
         prompt_unconfig( message, userid )
     elif option == "Ignore and proceed to view school timetable":
         view_timetable( message, userid )
+    elif option == "Import nusmods calendar data":
+        get_nusmods_data( message , userid )
+    elif option == "Auto configure lessons with nusmods calendar data":
+        ics_configure_lessons_bychao( message , userid )
     else:
         main( message )
 
@@ -1205,10 +1207,12 @@ def school_timetable( message, userid ):
         else: # If User has unconfigured lessons, can choose to configure, ignore and proceed to view, or return to main
             button1 = telebot.types.KeyboardButton( "Configure lessons" )
             button2 = telebot.types.KeyboardButton( "Unconfigure lessons" )
-            button3 = telebot.types.KeyboardButton( "Ignore and proceed to view school timetable" )
-            button4 = telebot.types.KeyboardButton( "Return to Main" )
+            button3 = telebot.types.KeyboardButton( "Import nusmods calendar data" )
+            button4 = telebot.types.KeyboardButton( "Auto configure lessons with nusmods calendar data" )
+            button5 = telebot.types.KeyboardButton( "Ignore and proceed to view school timetable" )
+            button6 = telebot.types.KeyboardButton( "Return to Main" )
             markup = telebot.types.ReplyKeyboardMarkup( resize_keyboard = True, one_time_keyboard = True )
-            markup.add( button1 ).add( button2 ).add( button3 ).add( button4 )
+            markup.add( button1 ).add( button2 ).add( button3 ).add( button4 ).add( button5 ).add( button6 )
             bot.send_message( int(userid), "You have not configured the timings for these lessons. Would you like to configure them now? The lesson slot numbers are required.\n\n" + unconfigured, reply_markup = markup )
             bot.register_next_step_handler( message, choice3a, userid, unconfigured_list )
     else: # If User has no mods
@@ -1298,8 +1302,153 @@ test_date = datetime( 2023, 9, 4 )
 
 ########### NUSMODS IMPORT TEST ###################
 
+def ics_configure_lessons_bychao( message, userid ):
+    ics_timetable = db.collection( "users" ).document( userid ).collection( "nus_mods" ).document( "class_data" ).get().to_dict()
+    manual_mods = db.collection( "users" ).document( userid ).collection( "all_mods" ).document( "all_mods" ).get().to_dict()
+    for mod_lesson in ics_timetable:
+        mod_code = mod_lesson.split( maxsplit = 1 )[0]
+        if mod_code not in manual_mods:
+            continue
+        else:
+            slot = ics_timetable[mod_lesson]["number"]
+            mod_lesson = mod_lesson.split( maxsplit = 1 )[1][:-1]
+            all_lessons_req = requests.get( mod_details_end.replace( replace_ay, ay ).replace( replace_mod, mod_code ) ).json()
+            all_lessons = all_lessons_req["semesterData"][semester]['timetable'] # Retrieve all lesson slots of a module for the current semester
+            for item in all_lessons: # For each lesson slot
+                if item['classNo'] == slot and item['lessonType'] == mod_lesson: # To filter the lesson slot that corresponds to User's input
+                    db.collection( "users" ).document( userid ).collection( "mods" ).document( mod_code ).collection( "lessons" ).document( mod_lesson ).update( {"timings": firestore.ArrayUnion([item])})
+                    db.collection( "users" ).document( userid ).collection( "mods" ).document( mod_code ).collection( "lessons" ).document( mod_lesson ).update( {"config" : True} )
+    school_timetable( message, userid )
+
+def get_nusmods_data(message, userid):
+    timetable_ref = db.collection("users").document(userid).collection("nus_mods").document("timetable")
+    timetable_doc = timetable_ref.get()
+
+    if timetable_doc.exists:
+        doc_data = timetable_doc.to_dict()
+        ics_file_attached = doc_data.get("ics_file_attached", False)
+        class_data = doc_data.get("class_data")
+
+        if ics_file_attached:
+            bot.send_message(int(userid), "Your .ics data exists.")
+            class_data = doc_data.get("class_data")
+            if class_data is not None and bool(class_data):
+                pass
+            else:
+                school_timetable( message, userid )
+        else:
+            bot.send_message(int(userid), "Please upload a .ics file with class data.")
+            bot.register_next_step_handler(message, upload_ics_file, userid)
+    else:
+        # Create the timetable document
+        timetable_ref.set({
+            "ics_file_attached": False,
+            "class_data": {}
+        })
+
+        bot.send_message(int(userid), "Please upload a .ics file with class data.")
+        bot.register_next_step_handler(message, upload_ics_file, userid)
+
+    return
+
+
+def upload_ics_file(message, userid):
+    if message.content_type == 'document':
+        file_info = bot.get_file(message.document.file_id)
+        downloaded_file = bot.download_file(file_info.file_path)
+        ics_file_data = downloaded_file.decode('utf-8')
+
+        # Extract the class data from the .ics file
+        class_data = extract_class_data(ics_file_data)
+
+        # Store the class data in Firestore
+        class_data_ref = db.collection("users").document(userid).collection("nus_mods").document("class_data")
+        class_data_ref.set(class_data)
+
+        # Update the "timetable" document to indicate the .ics file is attached
+        timetable_ref = db.collection("users").document(userid).collection("nus_mods").document("timetable")
+        timetable_ref.update({
+            "ics_file_attached": True,
+            "ics_file_data": ics_file_data
+        })
+
+        bot.send_message(int(userid), "ICS file uploaded successfully.")
+        school_timetable(message,userid)
+    else:
+        bot.send_message(int(userid), "Please upload a .ics file.")
+
+    return
+
+
+def extract_class_data(ics_data):
+    events = re.findall(r"BEGIN:VEVENT(.*?)END:VEVENT", ics_data, re.DOTALL)
+
+    class_data = {}
+    for event in events:
+        summary = get_value(event, "SUMMARY")
+        description = get_value(event, "DESCRIPTION")
+
+        number = extract_number_from_description(description)
+
+        if number is not None:  # Ignore events without a valid number
+            module_name = summary.split('\n')[0]  # Extract the module name without the field value
+
+            if module_name not in class_data:
+                class_data[module_name] = {
+                    "number": number
+                }
+
+    return class_data
+
+def get_value(event, field):
+    start = event.find(field + ":")
+    if start != -1:
+        end = event.find("END:VEVENT", start)
+        value = event[start:end].split(":", 1)[1].strip()
+        return value
+
+    return ""  # Return an empty string if the field is not found
+
+
+def extract_number_from_description(description):
+    match = re.search(r"(?:Group|Tutorial Group)\s+(\S+)", description.replace('\n', ' '))
+    if match:
+        return match.group(1)
+    match = re.search(r"(?:Group|Tutorial Group)\s+(.+)", description.replace('\n', ' '))
+    if match:
+        return match.group(1)
+    return None
+
+
+def process_class_data(class_data, userid):
+    processed_class_data = {}
+
+    for module_name, module_data in class_data.items():
+        summary = module_name
+        number = module_data['number']
+
+        # Ignore events with the word "exam" in the summary
+        if 'exam' not in summary.lower():
+            class_name = f"{module_name}: {number}"
+            processed_class_data[module_name] = {
+                "number": number
+            }
+
+    # Store the processed class data in Firestore
+    class_data_ref = db.collection("users").document(userid).collection("nus_mods").document("class_data")
+    class_data_ref.set(processed_class_data)
+
+    return
+
+
+# Helper function to download the .ics file data
+def download_file(file_url):
+    response = requests.get(file_url)
+    ics_file_data = response.text
+    return ics_file_data
 
 ####################################################
+
 
 ########## FUNCTION TO VIEW TIMETABLE ##########
 def view_timetable( message, userid ):
@@ -2183,149 +2332,6 @@ def delete_collection(collection_ref):
 
 ####################### NUSMODS .ics IMPORT TEST CODE #####################################
 
-def ics_configure_lessons_bychao( userid ):
-    ics_timetable = db.collection( "users" ).document( userid ).collection( "nus_mods" ).document( "class_data" ).get().to_dict()
-    manual_mods = db.collection( "users" ).document( userid ).collection( "all_mods" ).document( "all_mods" ).get().to_dict()
-    for mod_lesson in ics_timetable:
-        mod_code = mod_lesson.split( maxplit = 1 )[0]
-        if mod_code not in manual_mods:
-            continue
-        else:
-            slot = ics_timetable[mod_lesson]["number"]
-            mod_lesson = mod_lesson[:-1]
-            all_lessons_req = requests.get( mod_details_end.replace( replace_ay, ay ).replace( replace_mod, mod_code ) ).json()
-            all_lessons = all_lessons_req["semesterData"][semester]['timetable'] # Retrieve all lesson slots of a module for the current semester
-            for item in all_lessons: # For each lesson slot
-                if item['classNo'] == slot and item['lessonType'] == mod_lesson: # To filter the lesson slot that corresponds to User's input
-                    db.collection( "users" ).document( userid ).collection( "mods" ).document( mod_code ).collection( "lessons" ).document( mod_lesson ).update( {"timings": firestore.ArrayUnion([item])})
-                    db.collection( "users" ).document( userid ).collection( "mods" ).document( mod_code ).collection( "lessons" ).document( mod_lesson ).update( {"config" : True} )
-
-
-def get_nusmods_data(message, userid):
-    timetable_ref = db.collection("users").document(userid).collection("nus_mods").document("timetable")
-    timetable_doc = timetable_ref.get()
-
-    if timetable_doc.exists:
-        doc_data = timetable_doc.to_dict()
-        ics_file_attached = doc_data.get("ics_file_attached", False)
-        class_data = doc_data.get("class_data")
-
-        if ics_file_attached:
-            bot.send_message(int(userid), "Your .ics data exists.")
-            if class_data:
-                pass
-            else:
-                bot.send_message(int(userid), "No class data available. Please upload a .ics file.")
-        else:
-            bot.send_message(int(userid), "Please upload a .ics file with class data.")
-            bot.register_next_step_handler(message, upload_ics_file, userid)
-    else:
-        # Create the timetable document
-        timetable_ref.set({
-            "ics_file_attached": False,
-            "class_data": {}
-        })
-
-        bot.send_message(int(userid), "Please upload a .ics file with class data.")
-        bot.register_next_step_handler(message, upload_ics_file, userid)
-
-    return
-
-
-def upload_ics_file(message, userid):
-    if message.content_type == 'document':
-        file_info = bot.get_file(message.document.file_id)
-        downloaded_file = bot.download_file(file_info.file_path)
-        ics_file_data = downloaded_file.decode('utf-8')
-
-        # Extract the class data from the .ics file
-        class_data = extract_class_data(ics_file_data)
-
-        # Store the class data in Firestore
-        class_data_ref = db.collection("users").document(userid).collection("nus_mods").document("class_data")
-        class_data_ref.set(class_data)
-
-        # Update the "timetable" document to indicate the .ics file is attached
-        timetable_ref = db.collection("users").document(userid).collection("nus_mods").document("timetable")
-        timetable_ref.update({
-            "ics_file_attached": True,
-            "ics_file_data": ics_file_data
-        })
-
-        bot.send_message(int(userid), "ICS file uploaded successfully.")
-        main( message )
-    else:
-        bot.send_message(int(userid), "Please upload a .ics file.")
-
-    return
-
-
-def extract_class_data(ics_data):
-    events = re.findall(r"BEGIN:VEVENT(.*?)END:VEVENT", ics_data, re.DOTALL)
-
-    class_data = {}
-    for event in events:
-        summary = get_value(event, "SUMMARY")
-        description = get_value(event, "DESCRIPTION")
-
-        number = extract_number_from_description(description)
-
-        if number is not None:  # Ignore events without a valid number
-            module_name = summary.split('\n')[0]  # Extract the module name without the field value
-
-            if module_name not in class_data:
-                class_data[module_name] = {
-                    "number": number
-                }
-
-    return class_data
-
-def get_value(event, field):
-    start = event.find(field + ":")
-    if start != -1:
-        end = event.find("END:VEVENT", start)
-        value = event[start:end].split(":", 1)[1].strip()
-        return value
-
-    return ""  # Return an empty string if the field is not found
-
-
-def extract_number_from_description(description):
-    match = re.search(r"(?:Group|Tutorial Group)\s+(\S+)", description.replace('\n', ' '))
-    if match:
-        return match.group(1)
-    match = re.search(r"(?:Group|Tutorial Group)\s+(.+)", description.replace('\n', ' '))
-    if match:
-        return match.group(1)
-    return None
-
-
-def process_class_data(class_data, userid):
-    processed_class_data = {}
-
-    for module_name, module_data in class_data.items():
-        summary = module_name
-        number = module_data['number']
-
-        # Ignore events with the word "exam" in the summary
-        if 'exam' not in summary.lower():
-            class_name = f"{module_name}: {number}"
-            processed_class_data[module_name] = {
-                "number": number
-            }
-
-    # Store the processed class data in Firestore
-    class_data_ref = db.collection("users").document(userid).collection("nus_mods").document("class_data")
-    class_data_ref.set(processed_class_data)
-
-    return
-
-
-# Helper function to download the .ics file data
-def download_file(file_url):
-    response = requests.get(file_url)
-    ics_file_data = response.text
-    return ics_file_data
  
 
 
