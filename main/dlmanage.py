@@ -1302,7 +1302,7 @@ test_date = datetime( 2023, 9, 4 )
 
 ########### NUSMODS IMPORT TEST ###################
 
-def ics_configure_lessons_bychao( userid ):
+def ics_configure_lessons_bychao( message, userid ):
     ics_timetable = db.collection( "users" ).document( userid ).collection( "nus_mods" ).document( "class_data" ).get().to_dict()
     manual_mods = db.collection( "users" ).document( userid ).collection( "all_mods" ).document( "all_mods" ).get().to_dict()
     for mod_lesson in ics_timetable:
