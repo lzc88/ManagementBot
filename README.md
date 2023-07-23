@@ -396,7 +396,8 @@ Note that you do not need to be online / on assignments deadline list page for t
 
 <img src="images/image21.png" width="" alt="alt_text" title="image_tooltip">
 
-</li>
+</li>[Uploading 5568 Milestone 3 README.zip…]()
+
 </ul>
    </td>
   </tr>
