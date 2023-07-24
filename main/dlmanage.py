@@ -1178,10 +1178,10 @@ def choice3a( message, userid, unconfigured_list ):
         prompt_unconfig( message, userid )
     elif option == "Ignore and proceed to view school timetable":
         view_timetable( message, userid )
-    elif option == "Import nusmods calendar data":
+    elif option == "Import nusmods calendar data and auto configure classes":
         get_nusmods_data( message , userid )
-    elif option == "Auto configure lessons with nusmods calendar data":
-        ics_configure_lessons( message , userid )
+    elif option == "Unconfigure All lessons":
+        unconfig_all(message, userid)
     else:
         main( message )
 
@@ -1207,13 +1207,12 @@ def school_timetable( message, userid ):
         else: # If User has unconfigured lessons, can choose to configure, ignore and proceed to view, or return to main
             button1 = telebot.types.KeyboardButton( "Configure lessons" )
             button2 = telebot.types.KeyboardButton( "Unconfigure lessons" )
-            button3 = telebot.types.KeyboardButton( "Import nusmods calendar data" )
-            button4 = telebot.types.KeyboardButton( "Auto configure lessons with nusmods calendar data" )
-            button5 = telebot.types.KeyboardButton( "Ignore and proceed to view school timetable" )
-            button6 = telebot.types.KeyboardButton( "Return to Main" )
+            button3 = telebot.types.KeyboardButton( "Import nusmods calendar data and auto configure classes" )
+            button4 = telebot.types.KeyboardButton( "Ignore and proceed to view school timetable" )
+            button5 = telebot.types.KeyboardButton( "Return to Main" )
             markup = telebot.types.ReplyKeyboardMarkup( resize_keyboard = True, one_time_keyboard = True )
-            markup.add( button1 ).add( button2 ).add( button3 ).add( button4 ).add( button5 ).add( button6 )
-            bot.send_message( int(userid), "You have not configured the timings for these lessons. Would you like to configure them now? The lesson slot numbers are required.\n\n" + unconfigured, reply_markup = markup )
+            markup.add( button1 ).add( button2 ).add( button3 ).add( button4 ).add( button5 )
+            bot.send_message( int(userid), "You have not configured the timings for these lessons. Would you like to configure them now? The lesson slot numbers are required.\n If you wish to upload nusmods calendar data, please click on 'Import nusmods calendar data and auto configure classes'. \n\n" + unconfigured, reply_markup = markup )
             bot.register_next_step_handler( message, choice3a, userid, unconfigured_list )
     else: # If User has no mods
         button1 = telebot.types.KeyboardButton( "Add module" )
@@ -1296,6 +1295,38 @@ def unconfig( message, userid ):
     bot.send_message( int(userid), f"{message.text} has been unconfigured!" )
     school_timetable( message, userid )
 
+def unconfig_all(message, userid):
+    # Get a reference to the "mods" collection for the user
+    mods_ref = db.collection("users").document(userid).collection("mods")
+
+    # Get all the documents in the "mods" collection
+    mods = mods_ref.get()
+
+    # Loop through each mod document
+    for mod_doc in mods:
+        mod_id = mod_doc.id
+
+        # Get a reference to the "lessons" collection for this mod
+        lessons_ref = mods_ref.document(mod_id).collection("lessons")
+
+        # Get all the documents in the "lessons" collection for this mod
+        lessons = lessons_ref.get()
+
+        # Loop through each lesson document and set the "config" field to False
+        for lesson_doc in lessons:
+            lesson_doc_ref = lessons_ref.document(lesson_doc.id)
+            lesson_doc_ref.set({"config": False}, merge=True)
+            
+    timetable_ref = db.collection("users").document(userid).collection("nus_mods").document("timetable")
+    timetable_ref.update({
+        "ics_file_attached": False,
+        "ics_file_data": " "
+    })
+    
+    bot.send_message( int(userid), "All of your lessons have been successfully unconfigured!")
+    main(message)
+    
+
 ########## DATE FOR TESTING ##########
 test_date = datetime( 2023, 9, 4 )
 ######################################
@@ -1320,7 +1351,7 @@ def ics_configure_lessons( message, userid ):
                     if item['classNo'] == slot and item['lessonType'] == mod_lesson: # To filter the lesson slot that corresponds to User's input
                         db.collection( "users" ).document( userid ).collection( "mods" ).document( mod_code ).collection( "lessons" ).document( f'{mod_code} {mod_lesson}' ).update( {"timings": firestore.ArrayUnion([item])})
                         db.collection( "users" ).document( userid ).collection( "mods" ).document( mod_code ).collection( "lessons" ).document( f'{mod_code} {mod_lesson}' ).update( {"config" : True} )
-        bot.send_message( int(userid), "Your timetable has been synced with NUSMods! Take note that only lessons for modules you have manually added will be configured." )
+        bot.send_message( int(userid), "Your timetable has been synced with the calendar data provided! Take note that only lessons for modules you have manually added will be configured." )
         school_timetable( message, userid )
     else:
         bot.send_message( int(userid), "You do not have an .ics file attached. Please proceed to upload one.")
@@ -1342,7 +1373,12 @@ def get_nusmods_data(message, userid):
             else:
                 school_timetable( message, userid )
         else:
-            bot.send_message(int(userid), "Please upload a .ics file with class data.")
+            response += "Please upload a .ics file with class data.\n"
+            response += "To retrieve the .ics calendar, please head over to timetable in nusmods and edit your timetable. Afterwards, click on the download button and select"
+            response += " 'iCalendar File (.ics)' to download the .ics file for your customised timetable.\n"
+            response += "Please send the .ics file you downloaded to me and i will automatically configure your lessons for you!\n\n"
+            response += "PLEASE TAKE NOTE: Only mods that you have added in 'View Modules' will be configured! For example if your .ics data contains CS2040 Lecture and Tutorial, however if you did not add CS2040 as a module you are taking, the bot will ignore the data for CS2040!"
+            bot.send_message(int(userid), response)
             bot.register_next_step_handler(message, upload_ics_file, userid)
     else:
         # Create the timetable document
@@ -1377,8 +1413,8 @@ def upload_ics_file(message, userid):
             "ics_file_data": ics_file_data
         })
 
-        bot.send_message(int(userid), "ICS file uploaded successfully.")
-        school_timetable(message,userid)
+        bot.send_message(int(userid), "ICS file uploaded successfully. Please wait while I auto configure all lessons for you.")
+        ics_configure_lessons( message, userid )
     else:
         bot.send_message(int(userid), "Please upload a .ics file.")
 
@@ -1532,9 +1568,10 @@ def view_timetable( message, userid ):
                 main( message )
             else:
                 button1 = telebot.types.KeyboardButton( "Unconfigure lessons" )
-                button2 = telebot.types.KeyboardButton( "Return to Main" )
+                button2 = telebot.types.KeyboardButton( "Unconfigure All lessons" )
+                button3 = telebot.types.KeyboardButton( "Return to Main" )
                 markup = telebot.types.ReplyKeyboardMarkup( resize_keyboard = True, one_time_keyboard = True )
-                markup.add( button1 ).add( button2 )
+                markup.add( button1 ).add( button2 ).add( button3 )
                 bot.send_message( int(userid), f"Here is your time table for week {week_no}!" )
                 bot.send_message( int(userid), text, reply_markup = markup )
                 bot.register_next_step_handler( message, choice3a, userid, None )
