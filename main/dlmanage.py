@@ -22,13 +22,7 @@ import math
 ########## LOAD VARIABLES FROM .env ##########
 dotenv.load_dotenv( dotenv_path = ".env" )
 
-########## CREATING BOT INSTANCE ##########
-bottoken = "6250045869:AAFzbpqRpxTfehyMOK5RHPgheiLLzBruAfk"
-bot = telebot.TeleBot(bottoken)
-
 ########## INITIALISE DB ##########
-""" cred = firebase_admin.credentials.Certificate("managementbot-72f56-firebase-adminsdk-7fs64-3c7bb1c603.json") """
-cred = firebase_admin.credentials.Certificate("config\managementbot-72f56-firebase-adminsdk-7fs64-3c7bb1c603.json")
 dbapp = firebase_admin.initialize_app( cred )
 db = firestore.client()
 
@@ -46,10 +40,6 @@ def get_all_user_ids():
         user_ids.append(user_id)
 
     return user_ids
-
-
-########## ADMIN USER ID ########## **********Try to store this in the .env file so people won't see them
-approved_admins = ["966269150","291900788"]  
 
 ########## NUSMOD API ENDPOINTS ##########
 replace_ay = "{acadYear}"
